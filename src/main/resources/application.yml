@@ -1,0 +1,54 @@
+
+spring:
+#  datasource:
+#    url: jdbc:postgresql://dpg-d2ac96mr433s73abj2f0-a.oregon-postgres.render.com:5432/whatsapp_clone_2gis
+#    username: whatsapp_clone_2gis_user
+#    password: ZOFon52HabtEkRas1dcte8xfuMPqVPwg
+#    jpa:
+#      hibernate:
+#        ddl-auto: update
+#      show-sql: false
+#      properties:
+#        hibernate:
+#         format_sql: false
+#      database: postgresql
+#      database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/whatsapp_clone
+    username: postgres
+    password: 55
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+    database: postgresql
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chat-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+application:
+  file:
+    uploads:
+      media-output-path: ./uploads
+
+server:
+  port: 8080
