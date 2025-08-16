@@ -87,6 +87,18 @@
             <artifactId>spring-kafka-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Redis Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Lettuce Client -->
+        <dependency>
+            <groupId>io.lettuce</groupId>
+            <artifactId>lettuce-core</artifactId>
+            <version>6.7.1.RELEASE</version> <!-- اختر نسخة متوافقة مع Spring Boot 3.5 -->
+        </dependency>
         		<dependency>
         			<groupId>org.postgresql</groupId>
         			<artifactId>postgresql</artifactId>

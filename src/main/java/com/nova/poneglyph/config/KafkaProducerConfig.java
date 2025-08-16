@@ -1,6 +1,6 @@
 package com.nova.poneglyph.config;
 
-import com.nova.poneglyph.dto.Notification;
+import com.nova.poneglyph.events.NotificationEvent;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,7 +21,7 @@ public class KafkaProducerConfig {
     private String bootstrapServers;
 
     @Bean
-    public ProducerFactory<String, Notification> notificationProducerFactory() {
+    public ProducerFactory<String, NotificationEvent> notificationProducerFactory() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
@@ -30,7 +30,7 @@ public class KafkaProducerConfig {
     }
 
     @Bean
-    public KafkaTemplate<String, Notification> notificationKafkaTemplate() {
+    public KafkaTemplate<String, NotificationEvent> notificationKafkaTemplate() {
         return new KafkaTemplate<>(notificationProducerFactory());
     }
 }

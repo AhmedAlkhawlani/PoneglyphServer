@@ -36,4 +36,6 @@ public interface MessageRepository extends JpaRepository<Message, String> {
             "AND m.senderPhone != :userPhone " +
             "AND m.seenAt IS NULL")
     long countUnreadMessages(String conversationId, String userPhone);
+
+//    String findSenderIdById(String id);
 }

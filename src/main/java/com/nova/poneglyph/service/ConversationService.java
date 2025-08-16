@@ -103,6 +103,8 @@ public class ConversationService {
 //                .build();
 //    }
 
+
+
 private ConversationDTO convertToDTO(Conversation conversation) {
     MessageDTO lastMessage = conversation.getMessages().isEmpty() ? null :
             messageService.convertToDTO(
@@ -126,5 +128,7 @@ private ConversationDTO convertToDTO(Conversation conversation) {
             .unreadCount(unreadCount)
             .build();
 }
+
+
 
 }

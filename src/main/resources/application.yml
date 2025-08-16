@@ -26,8 +26,7 @@ spring:
       hibernate:
         format_sql: false
     database: postgresql
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
-
+#    database-platform: org.hibernate.dialect.PostgreSQLDialect
 
   kafka:
     bootstrap-servers: localhost:9092
@@ -44,6 +43,12 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 50MB
+
+  data:
+    redis:
+      port: 6379
+      host: localhost
+#      password:
 
 application:
   file:

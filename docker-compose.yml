@@ -52,6 +52,16 @@ services:
       - KAFKA_CLUSTERS_0_NAME=local
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9093
       - KAFKA_CLUSTERS_0_ZOOKEEPER=localhost:2181
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: [ "redis-server", "--appendonly", "yes" ]
+
+
 
 volumes:
   zookeeper_data:
@@ -59,4 +69,6 @@ volumes:
   kafka_data:
     driver: local
   postgres_data:
+    driver: local
+  redis_data:
     driver: local
