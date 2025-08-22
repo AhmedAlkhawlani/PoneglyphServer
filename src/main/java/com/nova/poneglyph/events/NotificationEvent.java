@@ -2,8 +2,7 @@ package com.nova.poneglyph.events;
 
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.nova.poneglyph.dto.MessageDTO;
-import com.nova.poneglyph.dto.PresenceDTO;
+import com.nova.poneglyph.dto.chatDto.MessageDto;
 import lombok.*;
 
 import java.io.Serializable;
@@ -21,13 +20,13 @@ public class NotificationEvent implements Serializable {
     private EventType eventType;     // نوع الحدث
 
     // بيانات الرسالة (MESSAGE, DELIVERY, SEEN)
-    private MessageDTO message;
+    private MessageDto message;
 
     // بيانات التحديث على المحادثة
     private ConversationUpdateEvent conversationUpdate;
 
     // بيانات الحالة (PresenceDTO)
-    private PresenceDTO presence;
+//    private PresenceDTO presence;
 
     // نص عام أو تنبيه SYSTEM/ALERT
     private String systemMessage;

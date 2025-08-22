@@ -1,13 +1,15 @@
 package com.nova.poneglyph.events;
 
-import com.nova.poneglyph.dto.MessageDTO;
+
+
+import com.nova.poneglyph.dto.chatDto.MessageDto;
 
 import java.util.List;
 
 
 public class ConversationUpdateEvent {
     private String conversationId;
-    private MessageDTO lastMessage;
+    private MessageDto lastMessage;
     private int unreadCount;
     private List<String> participantIds; // إضافة هذا الحقل
 
@@ -27,11 +29,11 @@ public class ConversationUpdateEvent {
         this.conversationId = conversationId;
     }
 
-    public MessageDTO getLastMessage() {
+    public MessageDto getLastMessage() {
         return lastMessage;
     }
 
-    public void setLastMessage(MessageDTO lastMessage) {
+    public void setLastMessage(MessageDto lastMessage) {
         this.lastMessage = lastMessage;
     }
 

@@ -15,7 +15,7 @@ spring:
 #      database-platform: org.hibernate.dialect.PostgreSQLDialect
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/whatsapp_clone
+    url: jdbc:postgresql://localhost:5432/gen3_DB
     username: postgres
     password: 55
   jpa:
@@ -57,3 +57,33 @@ application:
 
 server:
   port: 8080
+jwt:
+  secret: ${JWT_SECRET:843567893696976453275974432697R634976R738467TR678T34865R6834R8763T478378637664538745673865783678548735687R3}
+  access:
+    expiration: 900 # 15 minutes
+  refresh:
+    expiration: 1209600 # 14 days
+
+otp:
+  expiration:
+   minutes: 5 # minutes
+  max-attempts: 5
+
+media:
+  upload-dir: /var/uploads
+  max-size: 10485760 # 10MB
+
+backup:
+  directory: /backups
+  data-directory: /data
+  encrypt: true
+  encryption-key: backup-encryption-key
+  retention-days: 30
+
+chat:
+  message:
+    history-size: 100
+  encryption:
+    enabled: true
+
+logging:

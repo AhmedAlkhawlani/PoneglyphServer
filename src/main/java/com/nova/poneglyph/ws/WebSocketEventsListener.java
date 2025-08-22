@@ -1,7 +1,7 @@
 
 package com.nova.poneglyph.ws;
 
-import com.nova.poneglyph.service.PresenceService;
+//import com.nova.poneglyph.service.PresenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -23,7 +23,7 @@ import java.security.Principal;
 @Component
 @RequiredArgsConstructor
 public class WebSocketEventsListener {
-    private final PresenceService presenceService;
+//    private final PresenceService presenceService;
 
     @EventListener
     public void handleSessionConnectEvent(SessionConnectedEvent event) {

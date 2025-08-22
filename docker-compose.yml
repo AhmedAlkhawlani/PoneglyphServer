@@ -1,19 +1,19 @@
 
 services:
   postgres:
-    container_name: postgres
+    container_name: gen3_postgres
     image: postgres:latest
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 55
-      POSTGRES_DB: whatsapp_clone
+      POSTGRES_DB: gen3_DB
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
 
   zookeeper:
-    container_name: zookeeper
+    container_name: gen3_zookeeper
     image: "docker.io/bitnami/zookeeper:3"
     ports:
       - "2181:2181"
@@ -23,7 +23,7 @@ services:
       - ALLOW_ANONYMOUS_LOGIN=yes
 
   kafka:
-    container_name: kafka
+    container_name: gen3_kafka
     image: "docker.io/bitnami/kafka:2-debian-10"
     ports:
       - "9092:9092"
@@ -43,7 +43,7 @@ services:
       - zookeeper
 
   kafka-ui:
-    container_name: kafka-ui
+    container_name: gen3_kafka-ui
     image: provectuslabs/kafka-ui
     ports:
       - "9090:8080"
@@ -53,7 +53,7 @@ services:
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9093
       - KAFKA_CLUSTERS_0_ZOOKEEPER=localhost:2181
   redis:
-    container_name: redis
+    container_name: gen3_redis
     image: redis:7-alpine
     ports:
       - "6379:6379"
