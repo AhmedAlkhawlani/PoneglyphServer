@@ -85,6 +85,10 @@ public class JwtUtil {
 
     private Claims parseClaims(String token, boolean allowExpired) {
         try {
+            String[] parts = token.split("\\.");
+            if (parts.length != 3) {
+                throw new MalformedJwtException("JWT must have 3 parts");
+            }
             // Manually decode the JWT header to get kid without verification
             String[] parts = token.split("\\.");
             if (parts.length < 2) {
