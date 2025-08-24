@@ -1,5 +1,6 @@
 package com.nova.poneglyph.config.v2;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nova.poneglyph.service.auth.CustomUserDetailsService;
 
 import com.nova.poneglyph.util.JwtUtil;
@@ -21,7 +22,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Date;
+import java.util.Map;
 
 
 // ... imports ...
@@ -106,10 +109,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
+    // في JwtAuthenticationFilter - تحسين رسائل الخطأ
     private void unauthorizedJson(HttpServletResponse response, int status, String error, String message) throws IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        String body = String.format("{\"error\":\"%s\",\"message\":\"%s\"}", escapeJson(error), escapeJson(message));
+
+        Map<String, String> errorResponse = Map.of(
+                "error", error,
+                "message", message,
+                "timestamp", Instant.now().toString(),
+                "path", ((HttpServletRequest) response).getRequestURI()
+        );
+
+        String body = new ObjectMapper().writeValueAsString(errorResponse);
         response.getWriter().write(body);
     }
 

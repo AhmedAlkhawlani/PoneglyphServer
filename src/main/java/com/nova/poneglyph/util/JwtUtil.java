@@ -90,10 +90,10 @@ public class JwtUtil {
                 throw new MalformedJwtException("JWT must have 3 parts");
             }
             // Manually decode the JWT header to get kid without verification
-            String[] parts = token.split("\\.");
-            if (parts.length < 2) {
-                throw new MalformedJwtException("Invalid JWT format");
-            }
+//            String[] parts = token.split("\\.");
+//            if (parts.length < 2) {
+//                throw new MalformedJwtException("Invalid JWT format");
+//            }
             String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
             Map<String, Object> header = MAPPER.readValue(headerJson, Map.class);
             String kid = (String) header.get("kid");

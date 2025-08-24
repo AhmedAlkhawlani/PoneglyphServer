@@ -3,7 +3,6 @@ package com.nova.poneglyph.service;
 
 
 import com.nova.poneglyph.domain.message.Call;
-import com.nova.poneglyph.domain.message.Message;
 import com.nova.poneglyph.dto.NotificationDto;
 import com.nova.poneglyph.dto.chatDto.MessageDto;
 import lombok.RequiredArgsConstructor;
@@ -12,46 +11,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 
-//@Service
-//@RequiredArgsConstructor
-//public class WebSocketService {
-//
-//    private final SimpMessagingTemplate messagingTemplate;
-//
-//    public void notifyNewMessage(UUID conversationId, Message message) {
-//        messagingTemplate.convertAndSend(
-//                "/topic/conversation." + conversationId,
-//                message
-//        );
-//    }
-//
-//    public void notifyMessageStatus(UUID userId, UUID messageId, String status) {
-//        messagingTemplate.convertAndSendToUser(
-//                userId.toString(),
-//                "/queue/message-status",
-//                new MessageStatusUpdate(messageId, status)
-//        );
-//    }
-//
-//    public void notifyIncomingCall(Call call) {
-//        messagingTemplate.convertAndSendToUser(
-//                call.getReceiver().getId().toString(),
-//                "/queue/call-incoming",
-//                call
-//        );
-//    }
-//
-//    public void notifyCallStatus(UUID callId, String status) {
-//        messagingTemplate.convertAndSend(
-//                "/topic/call." + callId,
-//                new CallStatusUpdate(callId, status)
-//        );
-//    }
-//
-//    public record MessageStatusUpdate(UUID messageId, String status) {}
-//    public record CallStatusUpdate(UUID callId, String status) {}
-//
-//}
 
 @Service
 @RequiredArgsConstructor

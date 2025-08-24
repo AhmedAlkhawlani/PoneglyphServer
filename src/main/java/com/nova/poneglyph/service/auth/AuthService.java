@@ -449,6 +449,12 @@ public class AuthService {
     private UserSession createOrUpdateSession(User user, UserDevice device, RefreshToken token, String ip) {
         Optional<UserSession> existingSession = sessionService.findByUserAndDevice(user, device);
 
+        // التحقق من عدد الجلسات النشطة قبل الإنشاء
+//        long activeSessions = sessionService.countActiveSessionsByUserId(user.getId());
+//        if (activeSessions >= 3 && existingSession.isEmpty()) {
+//            throw new TooManySessionsException("Maximum active sessions reached");
+//        }
+
         UserSession session;
         if (existingSession.isPresent()) {
             session = existingSession.get();

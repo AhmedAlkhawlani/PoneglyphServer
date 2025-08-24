@@ -16,6 +16,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.security.Signature;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
@@ -181,5 +184,27 @@ public class KeyRotationService {
         byte[] buf = new byte[bytes];
         sr.nextBytes(buf);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
+    }
+    // في KeyRotationService - إضافة تحقق من صحة المفاتيح
+    private void validateKey(com.nova.poneglyph.domain.auth.JwtKey key) {
+        try {
+            RSAPublicKey publicKey = keyStorageService.toPublicKey(key);
+            RSAPrivateKey privateKey = keyStorageService.toPrivateKey(key);
+
+            // اختبار توقيع بسيط للتأكد من أن المفتاح يعمل
+            String testData = "test";
+            Signature sig = Signature.getInstance("SHA256withRSA");
+            sig.initSign(privateKey);
+            sig.update(testData.getBytes());
+            byte[] signature = sig.sign();
+
+            sig.initVerify(publicKey);
+            sig.update(testData.getBytes());
+            if (!sig.verify(signature)) {
+                throw new IllegalStateException("Key pair validation failed");
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Invalid key pair", e);
+        }
     }
 }

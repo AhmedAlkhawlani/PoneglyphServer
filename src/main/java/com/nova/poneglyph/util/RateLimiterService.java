@@ -20,9 +20,10 @@ public class RateLimiterService {
     public RateLimiterService(RedisTemplate<String, Object> redisTemplate) {
         this.redisTemplate = redisTemplate;
     }
-
+    // في RateLimiterService - التصميم الحالي جيد ولكن يمكن تحسينه
     public boolean isRateLimited(String key, int maxAttempts, Duration duration) {
-        Long count = redisTemplate.opsForValue().increment(key);
+        ValueOperations<String, Object> ops = redisTemplate.opsForValue();
+        Long count = ops.increment(key);
 
         if (count != null && count == 1) {
             redisTemplate.expire(key, duration.toSeconds(), TimeUnit.SECONDS);
@@ -30,6 +31,15 @@ public class RateLimiterService {
 
         return count != null && count > maxAttempts;
     }
+//    public boolean isRateLimited(String key, int maxAttempts, Duration duration) {
+//        Long count = redisTemplate.opsForValue().increment(key);
+//
+//        if (count != null && count == 1) {
+//            redisTemplate.expire(key, duration.toSeconds(), TimeUnit.SECONDS);
+//        }
+//
+//        return count != null && count > maxAttempts;
+//    }
 //    public boolean isRateLimited(String key, int maxAttempts, Duration duration) {
 //        ValueOperations<String, String> ops = redisTemplate.opsForValue();
 //        String currentAttempts = ops.get(key);
