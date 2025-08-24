@@ -1,4 +1,3 @@
-
 package com.nova.poneglyph.service.auth;
 
 import com.nova.poneglyph.config.v2.KeyStorageService;
@@ -34,10 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @Log4j2
 @Service
@@ -102,10 +98,10 @@ public class AuthService {
 
         otpCodeRepository.save(otpCode);
 
-        // TODO: إرسال الـOTP عبر مزود SMS. لا تطبع الكود نصيًا في السجلات.
+        // IMPORTANT: do not log raw OTP in production
         log.info("OTP issued for phone={} (expires in {}m)", maskPhone(normalized), otpExpirationMinutes);
-        log.info("OTP  phone={} ", otp);
 
+        log.info("OTP  phone={} ", otp);
         // تدقيق
         auditService.logAuthEvent(null, "OTP_REQUEST", "SENT", requestDto.getIp());
     }
@@ -124,65 +120,58 @@ public class AuthService {
     @Transactional
     public AuthResponseDto verifyOtp(OtpVerifyDto verifyDto) {
 
-      try {
-        String normalized = PhoneUtil.normalizePhone(verifyDto.getPhone());
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        try {
+            String normalized = PhoneUtil.normalizePhone(verifyDto.getPhone());
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
-        Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalized, now);
-        if (otpOptional.isEmpty()) {
-            auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", verifyDto.getIp());
-            throw new OtpValidationException("Invalid or expired OTP");
-        }
-
-        OtpProcessingService.OtpCheckResult checkResult =
-                otpProcessingService.processOtpAttemptAndMaybeConsume(otpOptional.get().getId(), verifyDto.getCode());
-
-        switch (checkResult) {
-            case SUCCESS -> { /* proceed */ }
-            case INVALID -> {
-                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_INVALID", verifyDto.getIp());
-                throw new OtpValidationException("Invalid OTP code");
-            }
-            case TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND -> {
-                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_" + checkResult.name(), verifyDto.getIp());
+            Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalized, now);
+            if (otpOptional.isEmpty()) {
+                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", verifyDto.getIp());
                 throw new OtpValidationException("Invalid or expired OTP");
             }
-        }
 
-        User user = userRepository.findByNormalizedPhone(normalized)
-                .orElseGet(() -> createUserIfNotExists(verifyDto.getPhone()));
+            OtpProcessingService.OtpCheckResult checkResult =
+                    otpProcessingService.processOtpAttemptAndMaybeConsume(otpOptional.get().getId(), verifyDto.getCode());
 
-        if (!user.isVerified()) {
-            user.setVerified(true);
-            userRepository.save(user);
-        }
-
-        //todo بدلاً من إلغاء جميع الجلسات السابقة، يمكنك:
-        // بدلاً من إلغاء جميع الجلسات السابقة، يمكنك:
-        // 1. تحديد حد أقصى للجلسات
-        // 2. أو السماح بعدد معين من الجلسات
-
-        List<UserSession> activeSessions = sessionService.findActiveSessionsByUserId(user.getId());
-        if (activeSessions.size() >= 3) { // حد أقصى 3 جلسات
-            // إلغاء أقدم جلسة
-            UserSession oldestSession = activeSessions.stream()
-                    .min(Comparator.comparing(UserSession::getIssuedAt))
-                    .orElse(null);
-            if (oldestSession != null) {
-                revokeSession(oldestSession.getId(), user.getId());
+            switch (checkResult) {
+                case SUCCESS -> { /* proceed */ }
+                case INVALID -> {
+                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_INVALID", verifyDto.getIp());
+                    throw new OtpValidationException("Invalid OTP code");
+                }
+                case TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND -> {
+                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_" + checkResult.name(), verifyDto.getIp());
+                    throw new OtpValidationException("Invalid or expired OTP");
+                }
             }
+
+            User user = userRepository.findByNormalizedPhone(normalized)
+                    .orElseGet(() -> createUserIfNotExists(verifyDto.getPhone()));
+
+            if (!user.isVerified()) {
+                user.setVerified(true);
+                userRepository.save(user);
+            }
+
+            // إدارة الحد الأقصى للجلسات
+            List<UserSession> activeSessions = sessionService.findActiveSessionsByUserId(user.getId());
+            if (activeSessions.size() >= 3) { // حد أقصى 3 جلسات
+                UserSession oldestSession = activeSessions.stream()
+                        .min(Comparator.comparing(UserSession::getIssuedAt))
+                        .orElse(null);
+                if (oldestSession != null) {
+                    revokeSession(oldestSession.getId(), user.getId());
+                }
+            }
+
+            AuthResponseDto response = issueNewTokensTransactional(user, verifyDto.getDeviceId(), verifyDto.getIp());
+
+            auditService.logAuthEvent(user.getId(), "OTP_VERIFY", "SUCCESS", verifyDto.getIp());
+            return response;
+        } catch (Exception e) {
+            log.error("Error in verifyOtp for phone {}: {}", verifyDto.getPhone(), e.getMessage(), e);
+            throw new OtpValidationException("Failed to verify OTP " + e.getMessage());
         }
-        // إلغاء أي جلسات نشطة سابقة قبل إصدار جلسة جديدة
-//        revokeAllActiveSessionsAndTokens(user.getId());
-
-        AuthResponseDto response = issueNewTokensTransactional(user, verifyDto.getDeviceId(), verifyDto.getIp());
-
-        auditService.logAuthEvent(user.getId(), "OTP_VERIFY", "SUCCESS", verifyDto.getIp());
-        return response;
-    } catch (Exception e) {
-        log.error("Error in verifyOtp for phone {}: {}", verifyDto.getPhone(), e.getMessage(), e);
-        throw new OtpValidationException("Failed to verify OTP "+ e);
-    }
 
     }
 
@@ -236,41 +225,22 @@ public class AuthService {
                     return new TokenRefreshException("Invalid refresh token");
                 });
 
-        // 6) الآن التحقق من صحة JWT: جرّب المفتاح الحالي أولاً ثم المفاتيح المؤرشفة
+        // 6) الآن التحقق من صحة JWT باستخدام JwtUtil (يشمل المفاتيح المؤرشفة داخلياً)
         boolean jwtValid = false;
         try {
-            jwtValid = jwtUtil.isRefreshTokenValid(raw, dbToken.getUser().getId().toString());
+            jwtValid = jwtUtil.validateRefreshToken(raw, dbToken.getUser().getId().toString());
         } catch (JwtException e) {
             log.debug("Primary JWT validation failed: {}", e.getMessage());
             jwtValid = false;
         }
 
         if (!jwtValid) {
-            // حاول المفاتيح المؤرشفة (إن وُجدت)
-            try {
-                for (String secret : keyStorageService.getArchivedJwtSecrets()) {
-                    try {
-                        if (jwtUtil.validateTokenWithKey(raw, dbToken.getUser().getId().toString(), secret)) {
-                            jwtValid = true;
-                            log.info("Refresh token validated using archived key for user: {}", dbToken.getUser().getId());
-                            break;
-                        }
-                    } catch (Exception inner) {
-                        log.debug("Archived key validation failed (ignored): {}", inner.getMessage());
-                    }
-                }
-            } catch (Exception e) {
-                log.debug("Error while checking archived keys: {}", e.getMessage());
-            }
-        }
-
-        if (!jwtValid) {
-            log.warn("Invalid refresh token JWT: jti={}", jti);
+            log.warn("Invalid refresh token JWT after archived-key check: jti={}", jti);
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_INVALID_JWT");
             throw new TokenRefreshException("Invalid refresh token");
         }
 
-        // 7) تحقق من أن التوكن ليس مُلغى أو منتهي
+        // 7) تحقق من أن التوكن ليس مُلغى أو منتهي على مستوى السجل
         if (dbToken.getRevokedAt() != null) {
             log.warn("Refresh token already revoked: jti={}", jti);
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_ALREADY_REVOKED");
@@ -278,7 +248,7 @@ public class AuthService {
         }
 
         if (dbToken.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
-            log.warn("Refresh token expired: jti={}", jti);
+            log.warn("Refresh token expired in DB: jti={}", jti);
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_EXPIRED");
             throw new TokenRefreshException("Refresh token expired");
         }
@@ -304,11 +274,16 @@ public class AuthService {
        تسجيل الخروج
        =========================== */
 
-
     @Transactional
     public void logout(String refreshTokenRaw) {
         try {
             String jtiStr = jwtUtil.extractJti(refreshTokenRaw);
+            if (jtiStr == null || jtiStr.isBlank()) {
+                log.warn("Logout: jti missing or unreadable");
+                auditService.logSecurityEvent(null, "LOGOUT", "FAILED_MISSING_JTI");
+                throw new TokenRefreshException("Invalid refresh token format");
+            }
+
             UUID jti = UUID.fromString(jtiStr);
 
             refreshTokenRepository.findByJti(jti).ifPresent(token -> {
@@ -322,17 +297,19 @@ public class AuthService {
                     sessionService.revokeSessionAndTokensByJti(jti);
 
                     log.debug("Logout ok: revoked jti={}", jti);
+                    auditService.logSecurityEvent(token.getUser().getId(), "LOGOUT", "SUCCESS");
                 } else {
                     log.warn("Logout: token hash mismatch jti={}", jti);
                     auditService.logSecurityEvent(token.getUser().getId(), "LOGOUT", "FAILED_HASH_MISMATCH");
                 }
             });
         } catch (Exception ex) {
-            log.error("Logout error: {}", ex.getMessage());
+            log.error("Logout error: {}", ex.getMessage(), ex);
             auditService.logSecurityEvent(null, "LOGOUT", "FAILED_EXCEPTION: " + ex.getMessage());
             throw new TokenRefreshException("Logout failed");
         }
     }
+
     /* ===========================
        إلغاء جميع الجلسات
        =========================== */
@@ -370,7 +347,6 @@ public class AuthService {
        =========================== */
     @Transactional
     public void revokeSession(UUID sessionId, UUID userId) {
-        // استخدام SessionService للتحقق من ملكية الجلسة وإلغائها
         Optional<UserSession> sessionOpt = sessionService.getSessionById(sessionId);
 
         if (sessionOpt.isEmpty()) {
@@ -412,29 +388,39 @@ public class AuthService {
     @Transactional
     public AuthResponseDto issueNewTokensTransactional(User user, String deviceId, String ip) {
         try {
+            // إنشاء التوكنات
             String accessToken = jwtUtil.generateAccessToken(user);
             String refreshToken = jwtUtil.generateRefreshToken(user);
 
+            // استخراج JTI من التوكن
             String jtiStr = jwtUtil.extractJti(refreshToken);
             UUID jti = UUID.fromString(jtiStr);
+
+            // إلغاء جميع توكنات المستخدم السابقة ما عدا التوكن الحالي
             refreshTokenRepository.revokeAllForUserExcept(user.getId(), jti);
 
+            // حفظ التوكن الجديد
             String refreshHash = encryptionUtil.hash(refreshToken);
             UserDevice userDevice = findOrCreateUserDevice(user, deviceId, ip);
             RefreshToken newToken = saveRefreshToken(user, jti, refreshHash, userDevice, ip);
 
-            // إنشاء أو تحديث الجلسة باستخدام SessionService
+            // إنشاء أو تحديث الجلسة
             UserSession session = createOrUpdateSession(user, userDevice, newToken, ip);
 
-            // ربط الجلسة مع التوكن
+            // ربط الجلسة مع التوكن وحفظه
             newToken.setSession(session);
             refreshTokenRepository.save(newToken);
 
+            // استخراج تواريخ الانتهاء من التوكنات
+            Date accessExp = jwtUtil.extractExpiration(accessToken);
+            Date refreshExp = jwtUtil.extractExpiration(refreshToken);
+
+            // إعادة الاستجابة
             return new AuthResponseDto(
                     accessToken,
-                    accessExpiration,
+                    accessExp.getTime(),
                     refreshToken,
-                    refreshExpiration,
+                    refreshExp.getTime(),
                     user.getId().toString()
             );
 
@@ -461,13 +447,11 @@ public class AuthService {
     }
 
     private UserSession createOrUpdateSession(User user, UserDevice device, RefreshToken token, String ip) {
-        // البحث عن جلسة موجودة لهذا المستخدم والجهاز
         Optional<UserSession> existingSession = sessionService.findByUserAndDevice(user, device);
 
         UserSession session;
         if (existingSession.isPresent()) {
             session = existingSession.get();
-            // تحديث الجلسة الحالية
             session.setActiveJti(token.getJti());
             session.setIpAddress(ip);
             session.setLastUsedAt(OffsetDateTime.now(ZoneOffset.UTC));
@@ -475,7 +459,6 @@ public class AuthService {
             session.setRefreshTokenHash(token.getRefreshHash());
             session.setActive(true);
         } else {
-            // إنشاء جلسة جديدة
             session = UserSession.builder()
                     .user(user)
                     .device(device)
@@ -494,21 +477,6 @@ public class AuthService {
 
     @Transactional
     public void revokeAllActiveSessionsAndTokens(UUID userId) {
-
-        //todo بدلاً من إلغاء جميع الجلسات السابقة، يمكنك:
-        // 1. تحديد حد أقصى للجلسات
-        // 2. أو السماح بعدد معين من الجلسات
-
-//        List<UserSession> activeSessions = userSessionRepository.findActiveSessionsByUserId(user.getId());
-//        if (activeSessions.size() >= 3) { // حد أقصى 3 جلسات
-//            // إلغاء أقدم جلسة
-//            UserSession oldestSession = activeSessions.stream()
-//                    .min(Comparator.comparing(UserSession::getIssuedAt))
-//                    .orElse(null);
-//            if (oldestSession != null) {
-//                revokeSession(oldestSession.getId(), user.getId());
-//            }
-//        }
         refreshTokenRepository.revokeAllForUser(userId);
         sessionService.revokeAllActiveSessionsAndTokens(userId);
     }
@@ -559,48 +527,31 @@ public class AuthService {
         return refreshTokenRepository.save(token);
     }
 
-//    private void updateActiveSession(User user, RefreshToken token) {
-//        sessionService.findLatestActiveSessionByUserId(user.getId())
-//                .ifPresent(session -> {
-//                    session.setActiveJti(token.getJti());
-//                    session.setLastUsedAt(OffsetDateTime.now(ZoneOffset.UTC));
-//                    session.setRefreshTokenHash(token.getRefreshHash());
-//                    session.setExpiresAt(token.getExpiresAt());
-//                    if (token.getDevice() != null) {
-//                        session.setDevice(token.getDevice());
-//                    }
-//                    sessionService.saveSession(session);
-//
-//                    // ربط التوكن بالجلسة
-//                    token.setSession(session);
-//                    refreshTokenRepository.save(token);
-//                });
-//    }
-private void updateActiveSession(User user, RefreshToken token) {
-    Optional<UserSession> sessionOpt = sessionService.findLatestActiveSessionByUserId(user.getId());
+    private void updateActiveSession(User user, RefreshToken token) {
+        Optional<UserSession> sessionOpt = sessionService.findLatestActiveSessionByUserId(user.getId());
 
-    if (sessionOpt.isPresent()) {
-        UserSession session = sessionOpt.get();
-        session.setActiveJti(token.getJti());
-        session.setLastUsedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        session.setRefreshTokenHash(token.getRefreshHash());
-        session.setExpiresAt(token.getExpiresAt());
-        if (token.getDevice() != null) {
-            session.setDevice(token.getDevice());
+        if (sessionOpt.isPresent()) {
+            UserSession session = sessionOpt.get();
+            session.setActiveJti(token.getJti());
+            session.setLastUsedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            session.setRefreshTokenHash(token.getRefreshHash());
+            session.setExpiresAt(token.getExpiresAt());
+            if (token.getDevice() != null) {
+                session.setDevice(token.getDevice());
+            }
+            sessionService.saveSession(session);
+
+            // ربط التوكن بالجلسة
+            token.setSession(session);
+            refreshTokenRepository.save(token);
+        } else {
+            // لا تغيير — إذا أردت إنشاء جلسة جديدة هنا فبإمكانك تفعيل الكود التالي
+            // UserSession newSession = createNewSession(user, token);
+            // sessionService.saveSession(newSession);
+            // token.setSession(newSession);
+            // refreshTokenRepository.save(token);
         }
-        sessionService.saveSession(session);
-
-        // ربط التوكن بالجلسة
-        token.setSession(session);
-        refreshTokenRepository.save(token);
-    } else {
-        // إنشاء جلسة جديدة إذا لم توجد
-//        UserSession newSession = createNewSession(user, token);
-//        sessionService.saveSession(newSession);
-//        token.setSession(newSession);
-//        refreshTokenRepository.save(token);
     }
-}
 
     private User createUserIfNotExists(String phone) {
         User user = new User();

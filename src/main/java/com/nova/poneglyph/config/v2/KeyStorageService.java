@@ -1,279 +1,232 @@
 package com.nova.poneglyph.config.v2;
 
+import com.nova.poneglyph.config.v2.kms.KmsProvider;
 import com.nova.poneglyph.domain.auth.JwtKey;
 import com.nova.poneglyph.repository.JwtKeyRepository;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
 public class KeyStorageService {
+    private static final Logger log = LoggerFactory.getLogger(KeyStorageService.class);
+    public static final String ALG = "RS256";
 
-    private final Logger log = LoggerFactory.getLogger(KeyStorageService.class);
-    private final RedisTemplate<String, String> redisTemplate;
+    private final RedisTemplate<String, String> redis;
+    private final JwtKeyRepository repo;
+    private final KmsProvider kmsProvider; // inject NoopKmsProvider or real KMS
 
-    private final JwtKeyRepository jwtKeyRepository; // مستودع جديد لقاعدة البيانات
+    // Redis keys
+    private static final String REDIS_CURRENT_KID = "jwt:current:kid";
+    private static final String REDIS_JWKS_CACHE = "jwt:jwks:cache"; // JSON
 
+    // Encryption key redis keys/patterns
+    private static final String REDIS_ENC_CURRENT = "encryption:current:key";
+    private static final String REDIS_ENC_ARCHIVE_PREFIX = "encryption:archive:"; // + timestamp
 
+    /* =================== CREATE / ROTATE (JWT RSA) =================== */
     @Transactional
-    public void storeCurrentJwtSecret(String secret) {
+    public synchronized JwtKey rotateAndGetNewCurrent(int keySize) {
         try {
-            // حفظ في Redis للأداء
-            redisTemplate.opsForValue().set("jwt:current:secret", secret);
-            redisTemplate.opsForValue().set("jwt:current:rotation",
-                    OffsetDateTime.now().toString());
+            KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+            kpg.initialize(keySize);
+            KeyPair kp = kpg.generateKeyPair();
+            RSAPrivateKey priv = (RSAPrivateKey) kp.getPrivate();
+            RSAPublicKey pub = (RSAPublicKey) kp.getPublic();
 
-            // التحقق أولاً إذا كان المفتاح موجوداً بالفعل
-            Optional<JwtKey> existingKey = jwtKeyRepository.findBySecret(secret);
-            if (existingKey.isPresent()) {
-                log.debug("Key already exists in database, skipping save");
-                return;
-            }
+            String kid = UUID.randomUUID().toString().replace("-", "");
+            String privB64 = Base64.getEncoder().encodeToString(priv.getEncoded()); // PKCS#8
+            String pubB64  = Base64.getEncoder().encodeToString(pub.getEncoded());  // X.509
 
-            // حفظ في قاعدة البيانات للاستدامة
-            // أولاً: تحديث أي مفتاح حالي سابق ليصبح مؤرشفاً
-            Optional<JwtKey> currentKeyOpt = jwtKeyRepository.findTopByKeyTypeOrderByCreatedAtDesc("CURRENT");
-            if (currentKeyOpt.isPresent()) {
-                JwtKey currentKey = currentKeyOpt.get();
-                currentKey.setKeyType("ARCHIVED");
-                currentKey.setExpiresAt(OffsetDateTime.now().plusDays(30));
-                jwtKeyRepository.save(currentKey);
-            }
+            byte[] encPriv = kmsProvider.encrypt(Base64.getDecoder().decode(privB64));
+            String encPrivB64 = Base64.getEncoder().encodeToString(encPriv);
 
-            // ثانياً: حفظ المفتاح الجديد كحالي
-            JwtKey newKey = JwtKey.createCurrentKey(secret);
-            jwtKeyRepository.save(newKey);
+            // Move old CURRENT -> ARCHIVED (DB)
+            repo.findTopByKeyTypeOrderByCreatedAtDesc("CURRENT").ifPresent(old -> {
+                old.setKeyType("ARCHIVED");
+                old.setExpiresAt(OffsetDateTime.now().plusDays(30));
+                repo.save(old);
+            });
 
-            log.info("JWT key stored successfully in database");
+            JwtKey current = JwtKey.createCurrent(kid, ALG, encPrivB64, pubB64);
+            repo.save(current);
+
+            // Redis quick pointers
+            redis.opsForValue().set(REDIS_CURRENT_KID, kid);
+            // Invalidate JWKS cache
+            redis.delete(REDIS_JWKS_CACHE);
+            return current;
         } catch (Exception e) {
-            log.error("Failed to store JWT key in database: {}", e.getMessage(), e);
-            // يمكنك إضافة منطق fallback هنا إذا لزم الأمر
+            log.error("Key rotation failed: {}", e.getMessage(), e);
+            throw new IllegalStateException("Key rotation failed", e);
         }
     }
 
-    public String getCurrentJwtSecret() {
+    /* =================== LOAD CURRENT =================== */
+    public Optional<JwtKey> getCurrentKey() {
         try {
-            // محاولة جلب من Redis أولاً
-            String secret = redisTemplate.opsForValue().get("jwt:current:secret");
-
-            // إذا لم يوجد في Redis، جلب من قاعدة البيانات
-            if (secret == null) {
-                Optional<JwtKey> currentKey = jwtKeyRepository.findTopByKeyTypeOrderByCreatedAtDesc("CURRENT");
-                if (currentKey.isPresent()) {
-                    secret = currentKey.get().getSecret();
-                    // تخزين في Redis للأداء
-                    redisTemplate.opsForValue().set("jwt:current:secret", secret);
-                    log.info("Loaded JWT key from database to Redis");
-                }
+            String kid = redis.opsForValue().get(REDIS_CURRENT_KID);
+            if (kid != null) {
+                return repo.findByKid(kid);
             }
-
-            return secret;
+            return repo.findTopByKeyTypeOrderByCreatedAtDesc("CURRENT");
         } catch (Exception e) {
-            log.error("Failed to get current JWT key: {}", e.getMessage(), e);
+            log.error("Failed to load current key: {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+    }
+
+    /* =================== LOAD BY KID =================== */
+    public Optional<JwtKey> getKeyByKid(String kid) {
+        return repo.findByKid(kid);
+    }
+
+    /* =================== ARCHIVED KEYS (JWT) =================== */
+    @Cacheable(cacheNames = "archivedKeys", key = "'active'", unless = "#result == null")
+    public List<JwtKey> getActiveArchivedKeys() {
+        return repo.findActiveArchived(OffsetDateTime.now());
+    }
+
+    @CacheEvict(cacheNames = "archivedKeys", allEntries = true)
+    public void evictArchivedCache() { /* no-op */ }
+
+    /* =================== Materialize RSA keys =================== */
+    public RSAPrivateKey toPrivateKey(JwtKey key) {
+        try {
+            byte[] enc = Base64.getDecoder().decode(key.getPrivateKeyPem());
+            byte[] pkcs8 = kmsProvider.decrypt(enc);
+            PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(pkcs8);
+            return (RSAPrivateKey) KeyFactory.getInstance("RSA").generatePrivate(spec);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build private key", e);
+        }
+    }
+
+    public RSAPublicKey toPublicKey(JwtKey key) {
+        try {
+            byte[] x509 = Base64.getDecoder().decode(key.getPublicKeyPem());
+            X509EncodedKeySpec spec = new X509EncodedKeySpec(x509);
+            return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(spec);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build public key", e);
+        }
+    }
+
+    /* =================== JWKS Cache =================== */
+    public Optional<String> getCachedJwksJson() {
+        return Optional.ofNullable(redis.opsForValue().get(REDIS_JWKS_CACHE));
+    }
+
+    public void cacheJwksJson(String json, long ttlSeconds) {
+        redis.opsForValue().set(REDIS_JWKS_CACHE, json, ttlSeconds, TimeUnit.SECONDS);
+    }
+
+    /* =================== Encryption Key management (Redis) =================== */
+
+    /**
+     * Store the current encryption key (fast lookup in Redis).
+     * This is intended for application-level encryption keys (not RSA JWT keys).
+     * If you need the encryption key to be persisted, ensure Redis is persistent or plug a DB-backed store.
+     */
+    @Transactional
+    public void storeCurrentEncryptionKey(String key) {
+        try {
+            if (key == null) return;
+            redis.opsForValue().set(REDIS_ENC_CURRENT, key);
+            log.info("Stored current encryption key in Redis (length={})", key.length());
+        } catch (Exception e) {
+            log.error("Failed to store current encryption key: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get the current encryption key from Redis.
+     */
+    public String getCurrentEncryptionKey() {
+        try {
+            return redis.opsForValue().get(REDIS_ENC_CURRENT);
+        } catch (Exception e) {
+            log.error("Failed to get current encryption key: {}", e.getMessage(), e);
             return null;
         }
     }
 
+    /**
+     * Archive an encryption key (store in Redis with TTL and keep for recovery).
+     * Key will be stored under key prefix 'encryption:archive:<epochSeconds>' with TTL 30 days.
+     */
     @Transactional
-    public void archiveJwtSecret(String secret) {
-        try {
-            // الأرشيف في Redis
-            String key = "jwt:archive:" + OffsetDateTime.now().toEpochSecond();
-            redisTemplate.opsForValue().set(key, secret, 30, TimeUnit.DAYS);
-
-            // الأرشيف في قاعدة البيانات
-            // التحقق أولاً إذا كان المفتاح موجوداً بالفعل
-            Optional<JwtKey> existingKey = jwtKeyRepository.findBySecret(secret);
-            if (existingKey.isPresent()) {
-                JwtKey keyEntity = existingKey.get();
-                if (!"ARCHIVED".equals(keyEntity.getKeyType())) {
-                    keyEntity.setKeyType("ARCHIVED");
-                    keyEntity.setExpiresAt(OffsetDateTime.now().plusDays(30));
-                    jwtKeyRepository.save(keyEntity);
-                }
-            } else {
-                JwtKey archivedKey = JwtKey.createArchivedKey(secret);
-                jwtKeyRepository.save(archivedKey);
-            }
-
-            log.info("JWT key archived successfully in database");
-        } catch (Exception e) {
-            log.error("Failed to archive JWT key: {}", e.getMessage(), e);
-        }
-    }
-
-    public List<String> getArchivedJwtSecrets() {
-        List<String> secrets = new ArrayList<>();
-
-        try {
-            // الجلب من قاعدة البيانات للاستدامة
-            List<JwtKey> archivedKeys = jwtKeyRepository.findByKeyTypeAndExpiresAtAfter(
-                    "ARCHIVED", OffsetDateTime.now());
-
-            for (JwtKey key : archivedKeys) {
-                secrets.add(key.getSecret());
-            }
-
-            log.debug("Retrieved {} archived JWT keys from database", secrets.size());
-        } catch (Exception e) {
-            log.error("Failed to get archived JWT keys: {}", e.getMessage(), e);
-        }
-
-        return secrets;
-    }
-
-
-//    public void storeCurrentJwtSecret(String secret) {
-//        redisTemplate.opsForValue().set("jwt:current:secret", secret);
-//        redisTemplate.opsForValue().set("jwt:current:rotation",
-//                OffsetDateTime.now().toString());
-//
-//    }
-
-//    public String getCurrentJwtSecret() {
-//        return redisTemplate.opsForValue().get("jwt:current:secret");
-//    }
-
-//    public void archiveJwtSecret(String secret) {
-//        String key = "jwt:archive:" + OffsetDateTime.now().toEpochSecond();
-//        redisTemplate.opsForValue().set(key, secret, 30, TimeUnit.DAYS);
-//    }
-
-//    public List<String> getArchivedJwtSecrets() {
-//        List<String> secrets = new ArrayList<>();
-//        Set<String> keys = redisTemplate.keys("jwt:archive:*");
-//
-//        if (keys != null) {
-//            for (String key : keys) {
-//                String secret = redisTemplate.opsForValue().get(key);
-//                if (secret != null) {
-//                    secrets.add(secret);
-//                }
-//            }
-//        }
-//
-//        return secrets;
-//    }
-
-    public void storeCurrentEncryptionKey(String key) {
-        redisTemplate.opsForValue().set("encryption:current:key", key);
-    }
-
-    public String getCurrentEncryptionKey() {
-        return redisTemplate.opsForValue().get("encryption:current:key");
-    }
-
-//    public void cleanupExpiredKeys() {
-//        // تنظيف المفاتيح المؤرشفة المنتهية الصلاحية
-//        Set<String> keys = redisTemplate.keys("jwt:archive:*");
-//        if (keys != null) {
-//            for (String key : keys) {
-//                Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-//                if (ttl != null && ttl <= 0) {
-//                    redisTemplate.delete(key);
-//                }
-//            }
-//        }
-//    }
-
-
-
     public void archiveEncryptionKey(String key) {
-        String archiveKey = "encryption:archive:" + System.currentTimeMillis();
-        redisTemplate.opsForValue().set(archiveKey, key, 30, TimeUnit.DAYS);
-    }
-
-    public List<String> getArchivedEncryptionKeys() {
-        List<String> keys = new ArrayList<>();
-        Set<String> redisKeys = redisTemplate.keys("encryption:archive:*");
-
-        if (redisKeys != null) {
-            for (String key : redisKeys) {
-                String value = redisTemplate.opsForValue().get(key);
-                if (value != null) {
-                    keys.add(value);
-                }
-            }
-        }
-        return keys;
-    }
-
-    @Scheduled(cron = "0 0 2 * * ?") // تنظيف يومي الساعة 2 صباحًا
-    public void cleanupExpiredKeys() {
         try {
-            // تنظيف مفاتيح JWT المؤرشفة المنتهية
-            Set<String> jwtArchiveKeys = redisTemplate.keys("jwt:archive:*");
-            if (jwtArchiveKeys != null) {
-                for (String key : jwtArchiveKeys) {
-                    Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-                    if (ttl != null && ttl <= 0) {
-                        redisTemplate.delete(key);
-                    }
-                }
-            }
-
-            // تنظيف مفاتيح التشفير المؤرشفة المنتهية
-            Set<String> encryptionArchiveKeys = redisTemplate.keys("encryption:archive:*");
-            if (encryptionArchiveKeys != null) {
-                for (String key : encryptionArchiveKeys) {
-                    Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-                    if (ttl != null && ttl <= 0) {
-                        redisTemplate.delete(key);
-                    }
-                }
-            }
-
-            log.info("Expired key cleanup completed");
+            if (key == null) return;
+            String redisKey = REDIS_ENC_ARCHIVE_PREFIX + OffsetDateTime.now().toEpochSecond();
+            redis.opsForValue().set(redisKey, key, 30, TimeUnit.DAYS);
+            log.info("Archived encryption key into Redis with key {}", redisKey);
         } catch (Exception e) {
-            log.error("Key cleanup failed", e);
+            log.error("Failed to archive encryption key: {}", e.getMessage(), e);
         }
     }
-//    public void archiveEncryptionKey(String key) {
-//        String archiveKey = "encryption:archive:" + OffsetDateTime.now().toEpochSecond();
-//        redisTemplate.opsForValue().set(archiveKey, key, 30, TimeUnit.DAYS);
-//    }
-//
-//    public List<String> getArchivedEncryptionKeys() {
-//        List<String> keys = new ArrayList<>();
-//        Set<String> redisKeys = redisTemplate.keys("encryption:archive:*");
-//
-//        if (redisKeys != null) {
-//            for (String key : redisKeys) {
-//                String value = redisTemplate.opsForValue().get(key);
-//                if (value != null) {
-//                    keys.add(value);
-//                }
-//            }
-//        }
-//        return keys;
-//    }
-//
-//    @Scheduled(cron = "0 0 2 * * ?") // تنظيف يومي الساعة 2 صباحاً
-//    public void cleanupExpiredKeys() {
-//        try {
-//            Set<String> allArchiveKeys = redisTemplate.keys("*:archive:*");
-//            if (allArchiveKeys != null) {
-//                allArchiveKeys.forEach(key -> {
-//                    Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-//                    if (ttl != null && ttl <= 0) {
-//                        redisTemplate.delete(key);
-//                    }
-//                });
-//            }
-//        } catch (Exception e) {
-//            log.error("Key cleanup failed", e);
-//        }
-//    }
+
+    /**
+     * Return list of archived encryption keys currently present in Redis (values).
+     * Note: uses redis.keys which might be expensive on large datasets.
+     */
+    public List<String> getArchivedEncryptionKeys() {
+        List<String> keysList = new ArrayList<>();
+        try {
+            Set<String> redisKeys = redis.keys(REDIS_ENC_ARCHIVE_PREFIX + "*");
+            if (redisKeys != null) {
+                for (String k : redisKeys) {
+                    String val = redis.opsForValue().get(k);
+                    if (val != null) keysList.add(val);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to get archived encryption keys: {}", e.getMessage(), e);
+        }
+        return keysList;
+    }
+
+    /* =================== Housekeeping =================== */
+    @Scheduled(cron = "0 0 3 * * ?")
+    public void cleanupExpiredJwtKeys() {
+        int deleted = repo.deleteByExpiresAtBefore(OffsetDateTime.now());
+        if (deleted > 0) log.info("Cleaned up {} expired JWT keys", deleted);
+        evictArchivedCache();
+        redis.delete(REDIS_JWKS_CACHE);
+
+        // cleanup encryption archives with expired TTL (Redis handles TTL automatically),
+        // but we will also ensure any keys with ttl <= 0 are removed (defensive).
+        try {
+            Set<String> encArchiveKeys = redis.keys(REDIS_ENC_ARCHIVE_PREFIX + "*");
+            if (encArchiveKeys != null) {
+                for (String key : encArchiveKeys) {
+                    Long ttl = redis.getExpire(key, TimeUnit.SECONDS);
+                    if (ttl != null && ttl <= 0) {
+                        redis.delete(key);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to cleanup encryption archive keys: {}", e.getMessage(), e);
+        }
+    }
 }

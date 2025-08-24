@@ -21,9 +21,9 @@ public class JwtKeyCleanupService {
     @Transactional
     public void cleanupExpiredJwtKeys() {
         try {
-//            int deletedCount =
-                    jwtKeyRepository.deleteByExpiresAtBefore(OffsetDateTime.now());
-            log.info("Cleaned up {} expired JWT keys from database");
+            int deleted = jwtKeyRepository.deleteByExpiresAtBefore(OffsetDateTime.now());
+            log.info("Cleaned up {} expired JWT keys from database", deleted);
+
         } catch (Exception e) {
             log.error("Failed to cleanup expired JWT keys: {}", e.getMessage(), e);
         }

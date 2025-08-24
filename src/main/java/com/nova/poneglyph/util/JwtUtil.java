@@ -1,391 +1,196 @@
 package com.nova.poneglyph.util;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nova.poneglyph.config.v2.KeyStorageService;
 import com.nova.poneglyph.domain.user.User;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.*;
-import io.jsonwebtoken.security.Keys;
-import jakarta.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.slf4j.Logger; import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.crypto.SecretKey;
+// not used with RSA but kept if needed
 import java.nio.charset.StandardCharsets;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Function;
 
 @Component
 public class JwtUtil {
-
     private static final Logger log = LoggerFactory.getLogger(JwtUtil.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private final KeyStorageService keyStorageService;
 
-    @Value("${jwt.secret}")
-    private String secret;
+    private final KeyStorageService keys;
 
-    @Value("${jwt.access.expiration}")
-    private long accessExpiration;
+    @Value("${jwt.issuer:nova-poneglyph}") private String issuer;
+    @Value("${jwt.audience:mobile-app}") private String audience;
+    @Value("${jwt.access.expiration:1800}") private long accessExpSec;
+    @Value("${jwt.refresh.expiration:1209600}") private long refreshExpSec;
+    @Value("${jwt.refresh.expired_grace_seconds:300}") private long refreshGraceSec; // allow parsing recently expired for rotation
 
-    @Value("${jwt.refresh.expiration}")
-    private long refreshExpiration;
+    public JwtUtil(KeyStorageService keys) { this.keys = keys; }
 
-    @Value("${jwt.issuer:nova-poneglyph}")
-    private String jwtIssuer;
+    /* =================== Generate =================== */
+    public String generateAccessToken(User user) { return generate(user, "access", accessExpSec); }
+    public String generateRefreshToken(User user) { return generate(user, "refresh", refreshExpSec); }
 
-    @Value("${jwt.audience:mobile-app}")
-    private String jwtAudience;
+    private String generate(User user, String type, long expSeconds) {
+        var currentOpt = keys.getCurrentKey();
+        if (currentOpt.isEmpty()) throw new IllegalStateException("No CURRENT JWT key available");
+        var current = currentOpt.get();
+        RSAPrivateKey priv = keys.toPrivateKey(current);
 
-    private SecretKey signingKey;
-
-    public JwtUtil(KeyStorageService keyStorageService) {
-        this.keyStorageService = keyStorageService;
-    }
-
-    //    @PostConstruct
-//    private void init() {
-//        updateSigningKey(this.secret);
-//        log.info("JwtUtil initialized with issuer: {}, audience: {}", jwtIssuer, jwtAudience);
-//    }
-@PostConstruct
-private void init() {
-    // لا نقوم بتهيئة المفتاح من application.properties فقط
-    // بل نحاول تحميل المفتاح من التخزين المستدام
-    try {
-        String persistedSecret = keyStorageService.getCurrentJwtSecret();
-        if (persistedSecret != null) {
-            updateSigningKey(persistedSecret);
-            log.info("JwtUtil initialized with persisted key");
-        } else {
-            // إذا لم يوجد مفتاح مستدام، استخدام المفتاح من الإعدادات
-            updateSigningKey(this.secret);
-            keyStorageService.storeCurrentJwtSecret(this.secret);
-            log.info("JwtUtil initialized with new key and persisted it");
-        }
-    } catch (Exception e) {
-        log.error("Failed to initialize with persisted key, using config key", e);
-        updateSigningKey(this.secret);
-    }
-}
-
-    public void updateSigningKey(String newSecret) {
-        byte[] keyBytes;
-        try {
-            keyBytes = Base64.getDecoder().decode(newSecret);
-        } catch (IllegalArgumentException ex) {
-            keyBytes = newSecret.getBytes(StandardCharsets.UTF_8);
-        }
-        this.signingKey = Keys.hmacShaKeyFor(keyBytes);
-        log.info("JWT signing key updated (key bytes length={})", keyBytes.length);
-    }
-
-    private SecretKey getSigningKey() {
-        return signingKey;
-    }
-
-    // ===================== TOKEN GENERATION =====================
-    public String generateAccessToken(User user) {
-        return generateToken(user, "access", accessExpiration);
-    }
-
-    public String generateRefreshToken(User user) {
-        return generateToken(user, "refresh", refreshExpiration);
-    }
-
-    private String generateToken(User user, String type, long expirationInSeconds) {
-        Map<String, Object> claims = new HashMap<>();
-        claims.put("userId", user.getId().toString());
-        claims.put("type", type);
-        claims.put("phone", user.getPhoneNumber());
-
-        String jti = UUID.randomUUID().toString();
         Instant now = Instant.now();
+        String jti = UUID.randomUUID().toString();
 
-        String token = Jwts.builder()
-                .setClaims(claims)
+        return Jwts.builder()
+                .setHeaderParam("kid", current.getKid())
+                .claim("type", type)
+                .claim("userId", user.getId().toString())
+                .claim("phone", user.getPhoneNumber())
+                .setIssuer(issuer)
+                .setAudience(audience)
                 .setSubject(user.getId().toString())
                 .setId(jti)
-                .setIssuer(jwtIssuer)
-                .setAudience(jwtAudience)
                 .setIssuedAt(Date.from(now))
-                .setExpiration(Date.from(now.plusSeconds(expirationInSeconds)))
-                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .setExpiration(Date.from(now.plusSeconds(expSeconds)))
+                .signWith(priv, SignatureAlgorithm.RS256)
                 .compact();
-
-        log.debug("Generated {} token for userId {} with jti={}", type, user.getId(), jti);
-        return token;
     }
 
-    // ===================== CLAIM EXTRACTION =====================
-    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+    /* =================== Extract =================== */
+    public <T> T extractClaim(String token, Function<Claims, T> resolver, boolean allowExpired) {
         try {
-            Claims claims = extractAllClaims(token);
-            return claimsResolver.apply(claims);
+            Claims claims = parseClaims(token, allowExpired);
+            return resolver.apply(claims);
         } catch (JwtException e) {
-            log.debug("Failed to extract claim: {}", e.getMessage());
+            log.debug("extractClaim failed: {}", e.getMessage());
             return null;
         }
     }
 
-    /**
-     * يحاول parse الـ JWT بالتحقق من التوقيع.
-     * لا يسجل SignatureException كـ ERROR لتقليل الضوضاء (يمكن أن يحدث أثناء تدوير المفاتيح).
-     */
-    private Claims extractAllClaims(String token) {
-        try {
-            JwtParser parser;
-            try {
-                parser = Jwts.parser()
-                        .setSigningKey(getSigningKey())
-                        .setAllowedClockSkewSeconds(60)
-                        .build();
-            } catch (NoSuchMethodError nsme) {
-                // fallback لو كانت نسخة المكتبة قديمة
-                parser = Jwts.parser().setSigningKey(getSigningKey()).build();
-            }
-            return parser.parseClaimsJws(token).getBody();
-        } catch (ExpiredJwtException e) {
-            log.warn("JWT token expired. Claims may still be available.");
-            throw e;
-        } catch (io.jsonwebtoken.security.SignatureException e) {
-            // توقيع غير مطابق — متوقع أحياناً (توكن قديم بعد تدوير مفاتيح)
-            log.debug("JWT signature invalid (possible old/rotated key): {}", e.getMessage());
-            throw e;
-        } catch (JwtException | IllegalArgumentException ex) {
-            // أخطاء عامة أخرى — سجلها كـ debug لأننا غالبًا نتعامل معها في منطق أعلى
-            log.debug("Failed to parse JWT token: {}", ex.getMessage());
-            throw ex;
-        }
-    }
+//    private Claims parseClaims(String token, boolean allowExpired) {
+//        try {
+//            JwsHeader<?> hdr = Jwts.parserBuilder().build().parseClaimsJws(token).getHeader();
+//            String kid = hdr.getKeyId();
+//            RSAPublicKey pub = resolveVerificationKey(token, kid);
+//            JwtParser parser = Jwts.parserBuilder().setSigningKey(pub).build();
+//            return parser.parseClaimsJws(token).getBody();
+//        } catch (ExpiredJwtException eje) {
+//            if (allowExpired) return eje.getClaims();
+//            throw eje;
+//        }
+//    }
 
-    /**
-     * استخراج jti بطريقة آمنة:
-     * 1) أولاً نحاول فك payload (Base64Url) واستخراج الحقل "jti" بدون تحقق التوقيع
-     *    — هذا يمنع SignatureException من الحدوث عندما نحتاج jti فقط للـ lookup.
-     * 2) إذا فشل ذلك نحاول parse موثوق عبر extractClaim().
-     */
-    public String extractJti(String token) {
-        // Attempt 1: decode payload (fast, no signature verification)
+    private Claims parseClaims(String token, boolean allowExpired) {
         try {
+            // Manually decode the JWT header to get kid without verification
             String[] parts = token.split("\\.");
-            if (parts.length >= 2) {
-                String payloadB64 = parts[1];
-                byte[] decoded = Base64.getUrlDecoder().decode(payloadB64);
-                String payloadJson = new String(decoded, StandardCharsets.UTF_8);
-                JsonNode node = MAPPER.readTree(payloadJson);
-                JsonNode jtiNode = node.get("jti");
-                if (jtiNode != null && !jtiNode.isNull()) {
-                    String jti = jtiNode.asText();
-                    if (jti != null && !jti.isBlank()) {
-                        return jti;
-                    }
-                }
+            if (parts.length < 2) {
+                throw new MalformedJwtException("Invalid JWT format");
             }
+            String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
+            Map<String, Object> header = MAPPER.readValue(headerJson, Map.class);
+            String kid = (String) header.get("kid");
+
+            RSAPublicKey pub = resolveVerificationKey(token, kid);
+            JwtParser parser = Jwts.parserBuilder()
+                    .setSigningKey(pub)
+                    .build();
+            return parser.parseClaimsJws(token).getBody();
+        } catch (ExpiredJwtException eje) {
+            if (allowExpired) return eje.getClaims();
+            throw eje;
         } catch (Exception e) {
-            log.debug("extractJti: payload decode failed: {}", e.getMessage());
-        }
-
-        // Attempt 2: secured parse (may throw SignatureException)
-        try {
-            return extractClaim(token, Claims::getId);
-        } catch (JwtException e) {
-            log.debug("extractJti: parse with signature failed: {}", e.getMessage());
-            return null;
+            throw new JwtException("Failed to parse claims", e);
         }
     }
-
-    public String extractUserId(String token) {
-        return extractClaim(token, Claims::getSubject);
+    private RSAPublicKey resolveVerificationKey(String token, String kid) {
+        // Try by kid current/archived
+        if (kid != null) {
+            return keys.getKeyByKid(kid)
+                    .map(keys::toPublicKey)
+                    .or(() -> keys.getActiveArchivedKeys().stream()
+                            .filter(k -> kid.equals(k.getKid()))
+                            .findFirst()
+                            .map(keys::toPublicKey))
+                    .orElseGet(() -> tryAllPublicKeys(token));
+        }
+        // No kid: try all known public keys (current + active archived)
+        return tryAllPublicKeys(token);
     }
 
-    public String extractTokenType(String token) {
-        return extractClaim(token, claims -> claims.get("type", String.class));
+    private RSAPublicKey tryAllPublicKeys(String token) {
+        var all = new ArrayList<>(keys.getActiveArchivedKeys());
+        keys.getCurrentKey().ifPresent(all::add);
+        for (var k : all) {
+            try {
+                RSAPublicKey pk = keys.toPublicKey(k);
+                Jwts.parserBuilder().setSigningKey(pk).build().parseClaimsJws(token);
+                return pk; // first that verifies
+            } catch (Exception ignore) { }
+        }
+        throw new SignatureException("No matching key found for token");
     }
 
-    public String extractPhone(String token) {
-        return extractClaim(token, claims -> claims.get("phone", String.class));
-    }
-
-    public String extractIssuer(String token) {
-        return extractClaim(token, Claims::getIssuer);
-    }
-
+    public String extractJti(String token) { return extractClaim(token, Claims::getId, true); }
+    public String extractUserId(String token) { return extractClaim(token, Claims::getSubject, true); }
+    public String extractTokenType(String token) { return extractClaim(token, c -> c.get("type", String.class), true); }
+    public Date extractExpiration(String token) { return extractClaim(token, Claims::getExpiration, true); }
+    public String extractIssuer(String token) { return extractClaim(token, Claims::getIssuer, true); }
     public String extractAudience(String token) {
+        return extractClaim(token, c -> {
+            Object aud = c.get("aud");
+            if (aud instanceof String s) return s;
+            if (aud instanceof Collection<?> c2 && !c2.isEmpty()) return String.valueOf(c2.iterator().next());
+            try { return c.getAudience(); } catch (Throwable t) { return null; }
+        }, true);
+    }
+
+    /* =================== Validate =================== */
+    private boolean coreValidate(String token, String expectedUserId, String expectedType, boolean allowExpired) {
         try {
-            Claims claims = extractAllClaims(token);
-
-            Object audRaw = claims.get("aud");
-            if (audRaw instanceof String) {
-                return (String) audRaw;
-            } else if (audRaw instanceof java.util.Collection) {
-                java.util.Collection<?> col = (java.util.Collection<?>) audRaw;
-                if (!col.isEmpty()) return col.iterator().next().toString();
-            }
-
-            try {
-                Object maybe = claims.getAudience();
-                if (maybe instanceof String) return (String) maybe;
-                if (maybe instanceof java.util.Collection) {
-                    java.util.Collection<?> c = (java.util.Collection<?>) maybe;
-                    if (!c.isEmpty()) return c.iterator().next().toString();
-                }
-            } catch (Throwable ignored) {}
-
-            return null;
+            Claims c = parseClaims(token, allowExpired);
+            boolean expOk = allowExpired || c.getExpiration().after(new Date());
+            String aud = extractAudience(token);
+            return expOk
+                    && expectedUserId.equals(c.getSubject())
+                    && expectedType.equalsIgnoreCase(String.valueOf(c.get("type")))
+                    && issuer.equals(c.getIssuer())
+                    && audience.equals(aud);
         } catch (JwtException e) {
-            log.debug("Failed to extract audience claim: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    public Date extractExpiration(String token) {
-        return extractClaim(token, Claims::getExpiration);
-    }
-
-    // ===================== TOKEN VALIDATION =====================
-    private boolean isTokenExpired(String token) {
-        Date exp = extractExpiration(token);
-        return exp == null || exp.before(new Date());
-    }
-
-    public boolean isTokenValid(String token, String expectedUserId) {
-        try {
-            String userId = extractUserId(token);
-            String type = extractTokenType(token);
-            String issuer = extractIssuer(token);
-            String audience = extractAudience(token);
-
-            boolean valid = userId != null
-                    && userId.equals(expectedUserId)
-                    && "access".equals(type)
-                    && jwtIssuer.equals(issuer)
-                    && jwtAudience.equals(audience)
-                    && !isTokenExpired(token);
-
-            log.debug("Token validation result for user {}: {}", expectedUserId, valid);
-            return valid;
-        } catch (JwtException e) {
-            log.debug("Token validation failed: {}", e.getMessage());
+            log.debug("validate failed: {}", e.getMessage());
             return false;
         }
     }
 
-    public boolean isTokenValid(String token, org.springframework.security.core.userdetails.UserDetails userDetails) {
-        if (userDetails == null) return false;
-        return isTokenValid(token, userDetails.getUsername());
+    public boolean validateAccessToken(String token, String expectedUserId) {
+        return coreValidate(token, expectedUserId, "access", false);
     }
 
-    public boolean isRefreshTokenValid(String token, String expectedUserId) {
+    /**
+     * Refresh token may be *recently* expired. Allow parsing expired claims but enforce grace.
+     */
+    public boolean validateRefreshToken(String token, String expectedUserId) {
         try {
-            String userId = extractUserId(token);
-            String type = extractTokenType(token);
-            String issuer = extractIssuer(token);
-            String audience = extractAudience(token);
-
-            boolean valid = userId != null
-                    && userId.equals(expectedUserId)
-                    && "refresh".equals(type)
-                    && jwtIssuer.equals(issuer)
-                    && jwtAudience.equals(audience)
-                    && !isTokenExpired(token);
-
-            log.debug("Refresh token validation result for user {}: {}", expectedUserId, valid);
-            return valid;
-        } catch (JwtException e) {
-            log.debug("Refresh token validation failed: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    public boolean validateTokenWithKey(String token, String expectedUserId, String secretKey) {
-        try {
-            byte[] keyBytes;
-            try {
-                keyBytes = Base64.getDecoder().decode(secretKey);
-            } catch (IllegalArgumentException ex) {
-                keyBytes = secretKey.getBytes(StandardCharsets.UTF_8);
-            }
-            SecretKey tempSigningKey = Keys.hmacShaKeyFor(keyBytes);
-
-            JwtParser parser;
-            try {
-                parser = Jwts.parser()
-                        .setSigningKey(tempSigningKey)
-                        .setAllowedClockSkewSeconds(60)
-                        .build();
-            } catch (NoSuchMethodError nsme) {
-                parser = Jwts.parser().setSigningKey(tempSigningKey).build();
-            }
-
-            Claims claims = parser.parseClaimsJws(token).getBody();
-
-            String userId = claims.getSubject();
-            String type = claims.get("type", String.class);
-            String issuer = claims.getIssuer();
-
-            String audience = null;
-            Object audObj = claims.get("aud");
-            if (audObj instanceof String) {
-                audience = (String) audObj;
-            } else if (audObj instanceof java.util.Collection) {
-                java.util.Collection<?> c = (java.util.Collection<?>) audObj;
-                if (!c.isEmpty()) audience = c.iterator().next().toString();
+            Claims c = parseClaims(token, true);
+            boolean typeOk = "refresh".equalsIgnoreCase(String.valueOf(c.get("type")));
+            boolean baseOk = expectedUserId.equals(c.getSubject()) && issuer.equals(c.getIssuer());
+            boolean audOk = audience.equals(extractAudience(token));
+            boolean timeOk;
+            if (c.getExpiration() == null) return false;
+            Date now = new Date();
+            if (c.getExpiration().after(now)) {
+                timeOk = true;
             } else {
-                try {
-                    Object maybe = claims.getAudience();
-                    if (maybe instanceof String) audience = (String) maybe;
-                    if (maybe instanceof java.util.Collection) {
-                        java.util.Collection<?> c = (java.util.Collection<?>) maybe;
-                        if (!c.isEmpty()) audience = c.iterator().next().toString();
-                    }
-                } catch (Throwable ignored) {}
+                long diff = (now.getTime() - c.getExpiration().getTime()) / 1000L;
+                timeOk = diff <= refreshGraceSec; // within grace window
             }
-
-            Date expiration = claims.getExpiration();
-
-            boolean valid = userId != null
-                    && userId.equals(expectedUserId)
-                    && "access".equals(type)
-                    && jwtIssuer.equals(issuer)
-                    && jwtAudience.equals(audience)
-                    && expiration != null
-                    && expiration.after(new Date());
-
-            log.debug("Custom key validation result for user {}: {}", expectedUserId, valid);
-            return valid;
+            return typeOk && baseOk && audOk && timeOk;
         } catch (JwtException e) {
-            log.debug("Token validation with custom key failed: {}", e.getMessage());
+            log.debug("refresh validate failed: {}", e.getMessage());
             return false;
         }
-    }
-
-    // في class JwtUtil نضيف هذه الطرق:
-
-    public boolean isTokenBlacklisted(String token) {
-        // سنعتمد على TokenBlacklistService بدلاً من التنفيذ المباشر هنا
-        throw new UnsupportedOperationException("Use TokenBlacklistService instead");
-    }
-
-    public boolean validateToken(String token) {
-        try {
-            String userId = extractUserId(token);
-            if (userId == null) return false;
-
-            return isTokenValid(token, userId);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    public boolean validateToken(String token, String expectedUserId) {
-        return isTokenValid(token, expectedUserId);
     }
 }
