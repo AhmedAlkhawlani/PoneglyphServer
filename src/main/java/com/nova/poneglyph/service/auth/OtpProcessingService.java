@@ -31,6 +31,18 @@ public class OtpProcessingService {
         SUCCESS, INVALID, TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND
     }
 
+    public static boolean safeEquals(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+
+        int result = 0;
+        for (int i = 0; i < a.length() && i < b.length(); i++) {
+            result |= a.charAt(i) ^ b.charAt(i);
+        }
+        return result == 0 && a.length() == b.length();
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public OtpCheckResult processOtpAttemptAndMaybeConsume(Long otpId, String providedCode) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -53,6 +65,10 @@ public class OtpProcessingService {
             return OtpCheckResult.EXPIRED;
         }
 
+        // استبدال المقارنة العادية بالمقارنة الآمنة
+//        if (!safeEquals(storedOtp.getCodeHash(), hashedProvidedCode)) {
+            // ... handle invalid code ...
+//        }
         boolean matches = passwordEncoder.matches(providedCode, otp.getCodeHash());
         if (matches) {
             otp.setUsed(true);

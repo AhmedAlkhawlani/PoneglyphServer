@@ -75,7 +75,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByNormalizedPhone(String normalizedPhone);
 
-//    Optional<User> findByNormalizedPhone(String normalizedPhone);
 
 
 }

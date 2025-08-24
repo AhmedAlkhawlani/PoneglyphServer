@@ -16,23 +16,11 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     @Query("select rt from RefreshToken rt where rt.session.id = :sessionId")
     Optional<RefreshToken> findBySessionId(@Param("sessionId") UUID sessionId);
 
-//    @Modifying
-//    @Query("update RefreshToken rt set rt.revokedAt = current_timestamp where rt.user.id = :userId and rt.revokedAt is null")
-//    void revokeAllForUser(@Param("userId") UUID userId);
-//
-//    @Modifying
-//    @Query("UPDATE RefreshToken rt SET rt.revokedAt = current_timestamp " +
-//            "WHERE rt.user.id = :userId AND rt.jti <> :exceptJti AND rt.revokedAt IS NULL")
-//    void revokeAllForUserExcept(@Param("userId") UUID userId, @Param("exceptJti") UUID exceptJti);
-
     @Modifying
     @Query("update RefreshToken rt set rt.revokedAt = current_timestamp where rt.user.id = :userId and rt.revokedAt is null")
     void revokeAllForUser(@Param("userId") UUID userId);
 
-//    @Modifying
-//    @Query("UPDATE RefreshToken rt SET rt.revokedAt = current_timestamp " +
-//            "WHERE rt.user.id = :userId AND rt.jti <> :exceptJti AND rt.revokedAt IS NULL")
-//    void revokeAllForUserExcept(@Param("userId") UUID userId, @Param("exceptJti") UUID exceptJti);
+
 
 
     // تحديث الاستعلام ليشمل العلاقة مع الجلسة

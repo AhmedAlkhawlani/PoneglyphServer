@@ -1,6 +1,7 @@
 
 package com.nova.poneglyph.config.v2;
 
+import com.nova.poneglyph.config.v2.csrf.CustomCsrfTokenRepository;
 import com.nova.poneglyph.service.audit.AuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -28,12 +29,23 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
 
     private final AuditService auditService;
+    private final CustomCsrfTokenRepository csrfTokenRepository;
+
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(csrfTokenRepository)
+                        .ignoringRequestMatchers(
+                                "/api/auth/otp/**",
+                                "/api/auth/token/**",
+                                "/api/auth/sessions/**", // إضافة هذا الخط الهام
+                                "/api/auth/logout",
+                                "/ws/**"
+                        ) // استثناء بعض المسارات من CSRF
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/otp/**",
@@ -66,17 +78,15 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // لا تترك "*" في الإنتاج — استخدم قائمة ثابتة أو بيئة
-//         config.setAllowedOrigins(List.of(
-//        "https://your-frontend.example.com",
-//        "http://localhost:3000", // للتطوير المحلي
-//        "http://127.0.0.1:3000"
-//    ));
-        config.setAllowedOrigins(List.of("https://your-frontend.example.com")); // عدّل هنا
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setExposedHeaders(List.of("Authorization"));
-        config.setAllowCredentials(true);
+
+        // في البيئة التنموية، يمكنك استخدام "*" ولكن في الإنتاج حدد النطاقات المسموحة
+        config.setAllowedOriginPatterns(List.of("*")); // استخدام patterns بدلاً من origins
+
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-CSRF-TOKEN", "X-Requested-With"));
+        config.setExposedHeaders(List.of("Authorization", "X-CSRF-TOKEN"));
+        config.setAllowCredentials(true); // مهم للجلسات والكوكيز
+        config.setMaxAge(3600L); // تخزين نتائج preflight لمدة ساعة
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

@@ -44,11 +44,11 @@ spring:
       max-file-size: 50MB
       max-request-size: 50MB
 
-  data:
-    redis:
-      port: 6379
-      host: localhost
-#      password:
+#  data:
+#    redis:
+#      port: 6379
+#      host: localhost
+##      password:
 
 application:
   file:
@@ -57,12 +57,12 @@ application:
 
 server:
   port: 8080
-jwt:
-  secret: ${JWT_SECRET:843567893696976453275974432697R634976R738467TR678T34865R6834R8763T478378637664538745673865783678548735687R3}
-  access:
-    expiration: 900 # 15 minutes
-  refresh:
-    expiration: 1209600 # 14 days
+#jwt:
+#  secret: ${JWT_SECRET:843567893696976453275974432697R634976R738467TR678T34865R6834R8763T478378637664538745673865783678548735687R3}
+#  access:
+#    expiration: 900 # 15 minutes
+#  refresh:
+#    expiration: 1209600 # 14 days
 
 otp:
   expiration:

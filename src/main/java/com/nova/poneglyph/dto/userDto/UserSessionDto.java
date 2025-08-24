@@ -1,6 +1,5 @@
 package com.nova.poneglyph.dto.userDto;
 
-// dto/UserSessionDto.java
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
