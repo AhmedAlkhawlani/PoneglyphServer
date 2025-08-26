@@ -55,6 +55,12 @@ public class UserDevice extends Auditable {
     @Column(name = "app_version", length = 50)
     private String appVersion;
 
+    @Column(name = "device_key", length = 255) // تم إضافة هذا الحقل
+    private String deviceKey;
+
+    @Column(name = "device_fingerprint", length = 255) // تم إضافة هذا الحقل
+    private String deviceFingerprint;
+
     @Column(name = "is_active")
     private boolean active = true;
 }

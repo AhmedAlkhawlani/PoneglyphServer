@@ -119,164 +119,496 @@ public class AuthService {
     /* ===========================
        تحقق OTP + إنشاء/جلب المستخدم
        =========================== */
+//    @Transactional
+//    public AuthResponseDto verifyOtp(OtpVerifyDto verifyDto) {
+//
+//        try {
+//            // توحيد تنسيق رقم الهاتف قبل التحقق
+//            String normalized = PhoneUtil.normalizePhone(verifyDto.getPhone());
+//
+//            // التحقق من أن رقم الهاتف صالح
+//            if (normalized.length() < MIN_PHONE_LENGTH) {
+//                throw new InvalidPhoneNumberException("Phone number is too short");
+//            }
+//            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+//            Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalized, now);
+//            if (otpOptional.isEmpty()) {
+//                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", verifyDto.getIp());
+//                throw new OtpValidationException("Invalid or expired OTP");
+//            }
+//
+//            OtpProcessingService.OtpCheckResult checkResult =
+//                    otpProcessingService.processOtpAttemptAndMaybeConsume(otpOptional.get().getId(), verifyDto.getCode());
+//
+//            switch (checkResult) {
+//                case SUCCESS -> { /* proceed */ }
+//                case INVALID -> {
+//                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_INVALID", verifyDto.getIp());
+//                    throw new OtpValidationException("Invalid OTP code");
+//                }
+//                case TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND -> {
+//                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_" + checkResult.name(), verifyDto.getIp());
+//                    throw new OtpValidationException("Invalid or expired OTP");
+//                }
+//            }
+//
+//            User user = userRepository.findByNormalizedPhone(normalized)
+//                    .orElseGet(() -> createUserIfNotExists(verifyDto.getPhone()));
+//
+//            if (!user.isVerified()) {
+//                user.setVerified(true);
+//                userRepository.save(user);
+//            }
+//
+//            // إدارة الحد الأقصى للجلسات
+//            List<UserSession> activeSessions = sessionService.findActiveSessionsByUserId(user.getId());
+//            if (activeSessions.size() >= 3) { // حد أقصى 3 جلسات
+//                UserSession oldestSession = activeSessions.stream()
+//                        .min(Comparator.comparing(UserSession::getIssuedAt))
+//                        .orElse(null);
+//                if (oldestSession != null) {
+//                    revokeSession(oldestSession.getId(), user.getId());
+//                }
+//            }
+//
+//            AuthResponseDto response = issueNewTokensTransactional(user, verifyDto.getDeviceId(), verifyDto.getIp());
+//
+//            auditService.logAuthEvent(user.getId(), "OTP_VERIFY", "SUCCESS", verifyDto.getIp());
+//            return response;
+//        } catch (Exception e) {
+//            log.error("Error in verifyOtp for phone {}: {}", verifyDto.getPhone(), e.getMessage(), e);
+//            throw new OtpValidationException("Failed to verify OTP " + e.getMessage());
+//        }
+//
+//    }
+
     @Transactional
     public AuthResponseDto verifyOtp(OtpVerifyDto verifyDto) {
-
         try {
-            // توحيد تنسيق رقم الهاتف قبل التحقق
-            String normalized = PhoneUtil.normalizePhone(verifyDto.getPhone());
+            // التحقق من صحة رقم الهاتف
+            String normalized = validateAndNormalizePhone(verifyDto.getPhone());
 
-            // التحقق من أن رقم الهاتف صالح
-            if (normalized.length() < MIN_PHONE_LENGTH) {
-                throw new InvalidPhoneNumberException("Phone number is too short");
-            }
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-            Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalized, now);
-            if (otpOptional.isEmpty()) {
-                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", verifyDto.getIp());
-                throw new OtpValidationException("Invalid or expired OTP");
-            }
+            // التحقق من OTP
+            validateOtp(normalized, verifyDto.getCode(), verifyDto.getIp());
 
-            OtpProcessingService.OtpCheckResult checkResult =
-                    otpProcessingService.processOtpAttemptAndMaybeConsume(otpOptional.get().getId(), verifyDto.getCode());
+            // الحصول على المستخدم أو إنشائه
+            User user = getUserOrCreate(verifyDto.getPhone(), normalized);
 
-            switch (checkResult) {
-                case SUCCESS -> { /* proceed */ }
-                case INVALID -> {
-                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_INVALID", verifyDto.getIp());
-                    throw new OtpValidationException("Invalid OTP code");
-                }
-                case TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND -> {
-                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_" + checkResult.name(), verifyDto.getIp());
-                    throw new OtpValidationException("Invalid or expired OTP");
-                }
-            }
+            // تحديث حالة التحقق إذا لزم الأمر
+            updateUserVerificationStatus(user);
 
-            User user = userRepository.findByNormalizedPhone(normalized)
-                    .orElseGet(() -> createUserIfNotExists(verifyDto.getPhone()));
+            // إنشاء/تحديث جهاز المستخدم
+            UserDevice userDevice = createOrUpdateUserDevice(user, verifyDto);
 
-            if (!user.isVerified()) {
-                user.setVerified(true);
-                userRepository.save(user);
-            }
+            // إدارة الجلسات النشطة
+            manageActiveSessions(user);
 
-            // إدارة الحد الأقصى للجلسات
-            List<UserSession> activeSessions = sessionService.findActiveSessionsByUserId(user.getId());
-            if (activeSessions.size() >= 3) { // حد أقصى 3 جلسات
-                UserSession oldestSession = activeSessions.stream()
-                        .min(Comparator.comparing(UserSession::getIssuedAt))
-                        .orElse(null);
-                if (oldestSession != null) {
-                    revokeSession(oldestSession.getId(), user.getId());
-                }
-            }
-
+            // إصدار التوكنات الجديدة
             AuthResponseDto response = issueNewTokensTransactional(user, verifyDto.getDeviceId(), verifyDto.getIp());
 
+            // تسجيل نجاح العملية
             auditService.logAuthEvent(user.getId(), "OTP_VERIFY", "SUCCESS", verifyDto.getIp());
+
             return response;
         } catch (Exception e) {
             log.error("Error in verifyOtp for phone {}: {}", verifyDto.getPhone(), e.getMessage(), e);
             throw new OtpValidationException("Failed to verify OTP " + e.getMessage());
         }
+    }
 
+    // دوال مساعدة
+    private String validateAndNormalizePhone(String phone) {
+        String normalized = PhoneUtil.normalizePhone(phone);
+        if (normalized.length() < MIN_PHONE_LENGTH) {
+            throw new InvalidPhoneNumberException("Phone number is too short");
+        }
+        return normalized;
+    }
+
+    private void validateOtp(String normalizedPhone, String code, String ip) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalizedPhone, now);
+
+        if (otpOptional.isEmpty()) {
+            auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", ip);
+            throw new OtpValidationException("Invalid or expired OTP");
+        }
+
+        OtpProcessingService.OtpCheckResult checkResult =
+                otpProcessingService.processOtpAttemptAndMaybeConsume(otpOptional.get().getId(), code);
+
+        switch (checkResult) {
+            case INVALID -> {
+                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_INVALID", ip);
+                throw new OtpValidationException("Invalid OTP code");
+            }
+            case TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND -> {
+                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_" + checkResult.name(), ip);
+                throw new OtpValidationException("Invalid or expired OTP");
+            }
+            case SUCCESS -> { /* proceed */ }
+        }
+    }
+
+    private User getUserOrCreate(String phone, String normalizedPhone) {
+        return userRepository.findByNormalizedPhone(normalizedPhone)
+                .orElseGet(() -> createUserIfNotExists(phone));
+    }
+
+    private void updateUserVerificationStatus(User user) {
+        if (!user.isVerified()) {
+            user.setVerified(true);
+            userRepository.save(user);
+        }
+    }
+
+    private UserDevice createOrUpdateUserDevice(User user, OtpVerifyDto verifyDto) {
+        return userDeviceRepository.findByUserAndDeviceId(user, verifyDto.getDeviceId())
+                .map(existingDevice -> updateExistingDevice(existingDevice, verifyDto))
+                .orElseGet(() -> createNewDevice(user, verifyDto));
+    }
+
+    private UserDevice updateExistingDevice(UserDevice device, OtpVerifyDto verifyDto) {
+        device.setDeviceKey(verifyDto.getDeviceKey());
+        device.setDeviceFingerprint(verifyDto.getDeviceFingerprint());
+        device.setIpAddress(verifyDto.getIp());
+        device.setOsVersion(verifyDto.getOsVersion());
+        device.setAppVersion(verifyDto.getAppVersion());
+        device.setLastLogin(OffsetDateTime.now(ZoneOffset.UTC));
+        return userDeviceRepository.save(device);
+    }
+
+    private UserDevice createNewDevice(User user, OtpVerifyDto verifyDto) {
+        return userDeviceRepository.save(
+                UserDevice.builder()
+                        .user(user)
+                        .deviceId(verifyDto.getDeviceId())
+                        .deviceKey(verifyDto.getDeviceKey())
+                        .deviceFingerprint(verifyDto.getDeviceFingerprint())
+                        .ipAddress(verifyDto.getIp())
+                        .osVersion(verifyDto.getOsVersion())
+                        .appVersion(verifyDto.getAppVersion())
+                        .lastLogin(OffsetDateTime.now(ZoneOffset.UTC))
+                        .active(true)
+                        .build()
+        );
+    }
+
+    private void manageActiveSessions(User user) {
+        List<UserSession> activeSessions = sessionService.findActiveSessionsByUserId(user.getId());
+        if (activeSessions.size() >= 3) {
+            UserSession oldestSession = activeSessions.stream()
+                    .min(Comparator.comparing(UserSession::getIssuedAt))
+                    .orElse(null);
+            if (oldestSession != null) {
+                revokeSession(oldestSession.getId(), user.getId());
+            }
+        }
+    }
+//    @Transactional
+//    public AuthResponseDto verifyOtp(OtpVerifyDto verifyDto) {
+//        try {
+//            // توحيد تنسيق رقم الهاتف قبل التحقق
+//            String normalized = PhoneUtil.normalizePhone(verifyDto.getPhone());
+//
+//            // التحقق من أن رقم الهاتف صالح
+//            if (normalized.length() < MIN_PHONE_LENGTH) {
+//                throw new InvalidPhoneNumberException("Phone number is too short");
+//            }
+//
+//            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+//            Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalized, now);
+//            if (otpOptional.isEmpty()) {
+//                auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", verifyDto.getIp());
+//                throw new OtpValidationException("Invalid or expired OTP");
+//            }
+//
+//            OtpProcessingService.OtpCheckResult checkResult =
+//                    otpProcessingService.processOtpAttemptAndMaybeConsume(otpOptional.get().getId(), verifyDto.getCode());
+//
+//            switch (checkResult) {
+//                case SUCCESS -> { /* proceed */ }
+//                case INVALID -> {
+//                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_INVALID", verifyDto.getIp());
+//                    throw new OtpValidationException("Invalid OTP code");
+//                }
+//                case TOO_MANY_ATTEMPTS, EXPIRED, NOT_FOUND -> {
+//                    auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_" + checkResult.name(), verifyDto.getIp());
+//                    throw new OtpValidationException("Invalid or expired OTP");
+//                }
+//            }
+//
+//            User user = userRepository.findByNormalizedPhone(normalized)
+//                    .orElseGet(() -> createUserIfNotExists(verifyDto.getPhone()));
+//
+//            if (!user.isVerified()) {
+//                user.setVerified(true);
+//                userRepository.save(user);
+//            }
+//
+//            // البحث عن الجهاز أو إنشائه مع البيانات الجديدة
+//            UserDevice userDevice = findOrCreateUserDevice(
+//                    user,
+//                    verifyDto.getDeviceId(),
+//                    verifyDto.getDeviceKey(),
+//                    verifyDto.getDeviceFingerprint(),
+//                    verifyDto.getIp(),
+//                    verifyDto.getOsVersion(), // إضافة الإصدار
+//                    verifyDto.getAppVersion() // إضافة الإصدار
+//            );
+//
+//            // إدارة الحد الأقصى للجلسات
+//            List<UserSession> activeSessions = sessionService.findActiveSessionsByUserId(user.getId());
+//            if (activeSessions.size() >= 3) {
+//                UserSession oldestSession = activeSessions.stream()
+//                        .min(Comparator.comparing(UserSession::getIssuedAt))
+//                        .orElse(null);
+//                if (oldestSession != null) {
+//                    revokeSession(oldestSession.getId(), user.getId());
+//                }
+//            }
+//
+//            AuthResponseDto response = issueNewTokensTransactional(user, verifyDto.getDeviceId(), verifyDto.getIp());
+//
+//            auditService.logAuthEvent(user.getId(), "OTP_VERIFY", "SUCCESS", verifyDto.getIp());
+//            return response;
+//        } catch (Exception e) {
+//            log.error("Error in verifyOtp for phone {}: {}", verifyDto.getPhone(), e.getMessage(), e);
+//            throw new OtpValidationException("Failed to verify OTP " + e.getMessage());
+//        }
+//    }
+
+    private UserDevice findOrCreateUserDevice(User user, String deviceId, String deviceKey,
+                                              String deviceFingerprint, String ip,
+                                              String osVersion, String appVersion) {
+        return userDeviceRepository.findByUserAndDeviceId(user, deviceId)
+                .map(existingDevice -> {
+                    // تحديث الجهاز-existing مع البيانات الجديدة
+                    existingDevice.setDeviceKey(deviceKey);
+                    existingDevice.setDeviceFingerprint(deviceFingerprint);
+                    existingDevice.setIpAddress(ip);
+                    existingDevice.setOsVersion(osVersion);
+                    existingDevice.setAppVersion(appVersion);
+                    existingDevice.setLastLogin(OffsetDateTime.now(ZoneOffset.UTC));
+                    return userDeviceRepository.save(existingDevice);
+                })
+                .orElseGet(() -> userDeviceRepository.save(
+                        UserDevice.builder()
+                                .user(user)
+                                .deviceId(deviceId)
+                                .deviceKey(deviceKey)
+                                .deviceFingerprint(deviceFingerprint)
+                                .ipAddress(ip)
+                                .osVersion(osVersion)
+                                .appVersion(appVersion)
+                                .lastLogin(OffsetDateTime.now(ZoneOffset.UTC))
+                                .active(true)
+                                .build()
+                ));
     }
 
     /* ===========================
        تجديد التوكنات مع التحسينات الأمنية
        =========================== */
 
-    @Transactional
-    public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
-        String raw = refreshDto.getRefreshToken();
-        final String jtiStr;
+//    @Transactional
+//    public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
+//        String raw = refreshDto.getRefreshToken();
+//        final String jtiStr;
+//
+//        // 1) محاولة استخراج JTI (قد تقوم JwtUtil بإرجاع null إذا لم تتمكن解析 التوقيع)
+//        try {
+//            jtiStr = jwtUtil.extractJti(raw);
+//        } catch (Exception ex) {
+//            log.warn("refreshToken: invalid token format: {}", ex.getMessage());
+//            auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_INVALID_FORMAT");
+//            throw new TokenRefreshException("Invalid refresh token format");
+//        }
+//
+//        // 2) تحقق من وجود jtiStr
+//        if (jtiStr == null || jtiStr.isBlank()) {
+//            log.warn("refreshToken: jti missing or unreadable");
+//            auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_MISSING_JTI");
+//            throw new TokenRefreshException("Invalid refresh token format");
+//        }
+//
+//        // 3) حاول تحويل jti إلى UUID بأمان
+//        final UUID jti;
+//        try {
+//            jti = UUID.fromString(jtiStr);
+//        } catch (IllegalArgumentException iae) {
+//            log.warn("refreshToken: jti not a valid UUID: {}", jtiStr);
+//            auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_INVALID_JTI_FORMAT");
+//            throw new TokenRefreshException("Invalid refresh token format");
+//        }
+//
+//        // 4) Rate limiting بناءً على JTI (آمن لأننا نحصل على jti الآن)
+//        String rateLimitKey = "refresh_" + jtiStr;
+//        if (rateLimiterService.isRateLimited(rateLimitKey, 5, Duration.ofMinutes(1))) {
+//            auditService.logSecurityEvent(null, "TOKEN_REFRESH", "RATE_LIMITED");
+//            throw new RateLimitExceededException("Too many refresh requests");
+//        }
+//
+//        // 5) إيجاد السجل في DB
+//        RefreshToken dbToken = refreshTokenRepository.findByJti(jti)
+//                .orElseThrow(() -> {
+//                    log.warn("Refresh token not found in DB: jti={}", jti);
+//                    auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_TOKEN_NOT_FOUND");
+//                    return new TokenRefreshException("Invalid refresh token");
+//                });
+//
+//        // 6) الآن التحقق من صحة JWT باستخدام JwtUtil (يشمل المفاتيح المؤرشفة داخلياً)
+//        boolean jwtValid = false;
+//        try {
+//            jwtValid = jwtUtil.validateRefreshToken(raw, dbToken.getUser().getId().toString());
+//        } catch (JwtException e) {
+//            log.debug("Primary JWT validation failed: {}", e.getMessage());
+//            jwtValid = false;
+//        }
+//
+//        if (!jwtValid) {
+//            log.warn("Invalid refresh token JWT after archived-key check: jti={}", jti);
+//            auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_INVALID_JWT");
+//            throw new TokenRefreshException("Invalid refresh token");
+//        }
+//
+//        // 7) تحقق من أن التوكن ليس مُلغى أو منتهي على مستوى السجل
+//        if (dbToken.getRevokedAt() != null) {
+//            log.warn("Refresh token already revoked: jti={}", jti);
+//            auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_ALREADY_REVOKED");
+//            throw new TokenRefreshException("Refresh token revoked");
+//        }
+//
+//        if (dbToken.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
+//            log.warn("Refresh token expired in DB: jti={}", jti);
+//            auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_EXPIRED");
+//            throw new TokenRefreshException("Refresh token expired");
+//        }
+//
+//        // 8) مقارنة SHA-256 بالـ hash المخزن
+//        String candidateHash = encryptionUtil.hash(raw);
+//        if (!candidateHash.equals(dbToken.getRefreshHash())) {
+//            log.warn("refreshToken hash mismatch jti={}, user={}", jti, dbToken.getUser().getId());
+//            revokeAllTokensForUser(dbToken.getUser().getId(), "Token hash mismatch detected");
+//            auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REUSE_DETECTED", "All tokens revoked");
+//            throw new TokenReuseException("Token mismatch / reuse detected");
+//        }
+//
+//        // 9) تدوير التوكنات وإرجاع الاستجابة
+//        AuthResponseDto response = rotateTokens(dbToken, raw);
+//
+//        // تدقيق النجاح
+//        auditService.logAuthEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "SUCCESS", dbToken.getIpAddress());
+//        return response;
+//    }
+@Transactional
+public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
+    String rawToken = refreshDto.getRefreshToken();
 
-        // 1) محاولة استخراج JTI (قد تقوم JwtUtil بإرجاع null إذا لم تتمكن解析 التوقيع)
+    try {
+        // استخراج وتحقق JTI
+        String jtiStr = extractAndValidateJti(rawToken);
+        UUID jti = parseJti(jtiStr);
+
+        // التحقق من معدل الطلبات
+        checkRateLimit(jtiStr);
+
+        // البحث عن التوكن في قاعدة البيانات
+        RefreshToken dbToken = findRefreshToken(jti);
+
+        // التحقق من صحة التوكن
+        validateRefreshToken(rawToken, dbToken);
+
+        // تدوير التوكنات
+        AuthResponseDto response = rotateTokens(dbToken, rawToken);
+
+        // تسجيل النجاح
+        auditService.logAuthEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "SUCCESS", dbToken.getIpAddress());
+
+        return response;
+    } catch (TokenRefreshException e) {
+        throw e;
+    } catch (Exception e) {
+        log.error("Unexpected error during token refresh: {}", e.getMessage(), e);
+        throw new TokenRefreshException("Token refresh failed due to an unexpected error");
+    }
+}
+
+    // دوال مساعدة لـ refreshToken
+    private String extractAndValidateJti(String token) {
         try {
-            jtiStr = jwtUtil.extractJti(raw);
+            String jtiStr = jwtUtil.extractJti(token);
+            if (jtiStr == null || jtiStr.isBlank()) {
+                log.warn("Refresh token: jti missing or unreadable");
+                auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_MISSING_JTI");
+                throw new TokenRefreshException("Invalid refresh token format");
+            }
+            return jtiStr;
         } catch (Exception ex) {
-            log.warn("refreshToken: invalid token format: {}", ex.getMessage());
+            log.warn("Refresh token: invalid token format: {}", ex.getMessage());
             auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_INVALID_FORMAT");
             throw new TokenRefreshException("Invalid refresh token format");
         }
+    }
 
-        // 2) تحقق من وجود jtiStr
-        if (jtiStr == null || jtiStr.isBlank()) {
-            log.warn("refreshToken: jti missing or unreadable");
-            auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_MISSING_JTI");
-            throw new TokenRefreshException("Invalid refresh token format");
-        }
-
-        // 3) حاول تحويل jti إلى UUID بأمان
-        final UUID jti;
+    private UUID parseJti(String jtiStr) {
         try {
-            jti = UUID.fromString(jtiStr);
+            return UUID.fromString(jtiStr);
         } catch (IllegalArgumentException iae) {
-            log.warn("refreshToken: jti not a valid UUID: {}", jtiStr);
+            log.warn("Refresh token: jti not a valid UUID: {}", jtiStr);
             auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_INVALID_JTI_FORMAT");
             throw new TokenRefreshException("Invalid refresh token format");
         }
+    }
 
-        // 4) Rate limiting بناءً على JTI (آمن لأننا نحصل على jti الآن)
+    private void checkRateLimit(String jtiStr) {
         String rateLimitKey = "refresh_" + jtiStr;
         if (rateLimiterService.isRateLimited(rateLimitKey, 5, Duration.ofMinutes(1))) {
             auditService.logSecurityEvent(null, "TOKEN_REFRESH", "RATE_LIMITED");
             throw new RateLimitExceededException("Too many refresh requests");
         }
+    }
 
-        // 5) إيجاد السجل في DB
-        RefreshToken dbToken = refreshTokenRepository.findByJti(jti)
+    private RefreshToken findRefreshToken(UUID jti) {
+        return refreshTokenRepository.findByJti(jti)
                 .orElseThrow(() -> {
                     log.warn("Refresh token not found in DB: jti={}", jti);
                     auditService.logSecurityEvent(null, "TOKEN_REFRESH", "FAILED_TOKEN_NOT_FOUND");
                     return new TokenRefreshException("Invalid refresh token");
                 });
+    }
 
-        // 6) الآن التحقق من صحة JWT باستخدام JwtUtil (يشمل المفاتيح المؤرشفة داخلياً)
-        boolean jwtValid = false;
-        try {
-            jwtValid = jwtUtil.validateRefreshToken(raw, dbToken.getUser().getId().toString());
-        } catch (JwtException e) {
-            log.debug("Primary JWT validation failed: {}", e.getMessage());
-            jwtValid = false;
-        }
-
+    private void validateRefreshToken(String rawToken, RefreshToken dbToken) {
+        // التحقق من صحة JWT
+        boolean jwtValid = jwtUtil.validateRefreshToken(rawToken, dbToken.getUser().getId().toString());
         if (!jwtValid) {
-            log.warn("Invalid refresh token JWT after archived-key check: jti={}", jti);
+            log.warn("Invalid refresh token JWT: jti={}", dbToken.getJti());
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_INVALID_JWT");
             throw new TokenRefreshException("Invalid refresh token");
         }
 
-        // 7) تحقق من أن التوكن ليس مُلغى أو منتهي على مستوى السجل
+        // التحقق من حالة التوكن
         if (dbToken.getRevokedAt() != null) {
-            log.warn("Refresh token already revoked: jti={}", jti);
+            log.warn("Refresh token already revoked: jti={}", dbToken.getJti());
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_ALREADY_REVOKED");
             throw new TokenRefreshException("Refresh token revoked");
         }
 
         if (dbToken.getExpiresAt().isBefore(OffsetDateTime.now(ZoneOffset.UTC))) {
-            log.warn("Refresh token expired in DB: jti={}", jti);
+            log.warn("Refresh token expired in DB: jti={}", dbToken.getJti());
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "FAILED_EXPIRED");
             throw new TokenRefreshException("Refresh token expired");
         }
 
-        // 8) مقارنة SHA-256 بالـ hash المخزن
-        String candidateHash = encryptionUtil.hash(raw);
+        // التحقق من hash التوكن
+        String candidateHash = encryptionUtil.hash(rawToken);
         if (!candidateHash.equals(dbToken.getRefreshHash())) {
-            log.warn("refreshToken hash mismatch jti={}, user={}", jti, dbToken.getUser().getId());
+            log.warn("Refresh token hash mismatch jti={}, user={}", dbToken.getJti(), dbToken.getUser().getId());
             revokeAllTokensForUser(dbToken.getUser().getId(), "Token hash mismatch detected");
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REUSE_DETECTED", "All tokens revoked");
             throw new TokenReuseException("Token mismatch / reuse detected");
         }
-
-        // 9) تدوير التوكنات وإرجاع الاستجابة
-        AuthResponseDto response = rotateTokens(dbToken, raw);
-
-        // تدقيق النجاح
-        auditService.logAuthEvent(dbToken.getUser().getId(), "TOKEN_REFRESH", "SUCCESS", dbToken.getIpAddress());
-        return response;
     }
-
     /* ===========================
        تسجيل الخروج
        =========================== */
