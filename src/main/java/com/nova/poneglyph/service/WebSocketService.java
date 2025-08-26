@@ -1,7 +1,5 @@
 package com.nova.poneglyph.service;
 
-
-
 import com.nova.poneglyph.domain.message.Call;
 import com.nova.poneglyph.dto.NotificationDto;
 import com.nova.poneglyph.dto.chatDto.MessageDto;
@@ -9,8 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
 import java.util.UUID;
-
 
 @Service
 @RequiredArgsConstructor
@@ -29,7 +27,7 @@ public class WebSocketService {
         messagingTemplate.convertAndSendToUser(
                 userId.toString(),
                 "/queue/message-status",
-                new MessageStatusUpdate(messageId, status)
+                Map.of("messageId", messageId, "status", status)
         );
     }
 
@@ -41,36 +39,35 @@ public class WebSocketService {
         );
     }
 
+    public void notifyIncomingCall(com.nova.poneglyph.controller.websocket.WebSocketController.CallRequest callRequest) {
+        messagingTemplate.convertAndSendToUser(
+                callRequest.getReceiverId().toString(),
+                "/queue/call-incoming",
+                callRequest
+        );
+    }
+
     public void notifyCallStatus(UUID callId, String status) {
         messagingTemplate.convertAndSend(
                 "/topic/call." + callId,
-                new CallStatusUpdate(callId, status)
+                Map.of("callId", callId, "status", status)
         );
     }
 
     public void notifyMessageDeleted(UUID messageId, boolean forEveryone) {
         messagingTemplate.convertAndSend(
                 "/topic/message-deleted",
-                java.util.Map.of(
-                        "messageId", messageId,
-                        "forEveryone", forEveryone
-                )
+                Map.of("messageId", messageId, "forEveryone", forEveryone)
         );
     }
 
-    // ⚡ إضافة notifyReactionUpdate
     public void notifyReactionUpdate(UUID messageId, UUID userId, String reaction) {
         messagingTemplate.convertAndSend(
                 "/topic/message." + messageId + ".reactions",
-                java.util.Map.of(
-                        "messageId", messageId,
-                        "userId", userId,
-                        "reaction", reaction
-                )
+                Map.of("messageId", messageId, "userId", userId, "reaction", reaction)
         );
     }
 
-    // 🔔 إضافة sendNotification
     public void sendNotification(UUID userId, NotificationDto notification) {
         messagingTemplate.convertAndSendToUser(
                 userId.toString(),
@@ -82,32 +79,14 @@ public class WebSocketService {
     public void notifyPresenceChange(UUID userId, boolean online) {
         messagingTemplate.convertAndSend(
                 "/topic/presence." + userId,
-                java.util.Map.of(
-                        "userId", userId,
-                        "online", online
-                )
+                Map.of("userId", userId, "online", online)
         );
     }
 
-
-    public record MessageStatusUpdate(UUID messageId, String status) {}
-    public record CallStatusUpdate(UUID callId, String status) {}
+    public void notifyUserStatusChange(UUID userId, String status) {
+        messagingTemplate.convertAndSend(
+                "/topic/user-status." + userId,
+                Map.of("userId", userId, "status", status)
+        );
+    }
 }
-
-//@Getter
-//@Setter
-//@NoArgsConstructor
-//@AllArgsConstructor
-//public class MessageStatusUpdate {
-//    private UUID messageId;
-//    private String status;
-//}
-//
-//@Getter
-//@Setter
-//@NoArgsConstructor
-//@AllArgsConstructor
-//public class CallStatusUpdate {
-//    private UUID callId;
-//    private String status;
-//}

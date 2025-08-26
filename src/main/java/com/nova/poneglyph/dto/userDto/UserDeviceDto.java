@@ -1,17 +1,19 @@
 package com.nova.poneglyph.dto.userDto;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
-@Data
-public class DeviceRegistrationDto {
-    @NotBlank
-    private String deviceId;
+import java.time.OffsetDateTime;
+import java.util.UUID;
 
+@Data
+public class UserDeviceDto {
+    private UUID id;
+    private String deviceId;
     private String deviceName;
     private String deviceModel;
     private String osVersion;
     private String appVersion;
     private String ipAddress;
+    private OffsetDateTime lastLogin;
+    private boolean active;
 }
-

@@ -70,18 +70,7 @@ public class JwtUtil {
         }
     }
 
-//    private Claims parseClaims(String token, boolean allowExpired) {
-//        try {
-//            JwsHeader<?> hdr = Jwts.parserBuilder().build().parseClaimsJws(token).getHeader();
-//            String kid = hdr.getKeyId();
-//            RSAPublicKey pub = resolveVerificationKey(token, kid);
-//            JwtParser parser = Jwts.parserBuilder().setSigningKey(pub).build();
-//            return parser.parseClaimsJws(token).getBody();
-//        } catch (ExpiredJwtException eje) {
-//            if (allowExpired) return eje.getClaims();
-//            throw eje;
-//        }
-//    }
+
 
     private Claims parseClaims(String token, boolean allowExpired) {
         try {
@@ -89,11 +78,7 @@ public class JwtUtil {
             if (parts.length != 3) {
                 throw new MalformedJwtException("JWT must have 3 parts");
             }
-            // Manually decode the JWT header to get kid without verification
-//            String[] parts = token.split("\\.");
-//            if (parts.length < 2) {
-//                throw new MalformedJwtException("Invalid JWT format");
-//            }
+
             String headerJson = new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8);
             Map<String, Object> header = MAPPER.readValue(headerJson, Map.class);
             String kid = (String) header.get("kid");

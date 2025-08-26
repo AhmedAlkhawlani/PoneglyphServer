@@ -74,6 +74,7 @@
 //}
 package com.nova.poneglyph.repository;
 
+import aj.org.objectweb.asm.commons.Remapper;
 import com.nova.poneglyph.domain.user.User;
 import com.nova.poneglyph.domain.user.UserDevice;
 import com.nova.poneglyph.domain.user.UserSession;
@@ -95,7 +96,7 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
 //    Optional<UserSession> findLatestActiveSessionByUserId(@Param("userId") UUID userId);
 
 
-    Optional<UserSession> findByUser_NormalizedPhone(String normalizedPhone);
+    Optional<UserSession> findTop1ByUser_NormalizedPhoneOrderByLastUsedAtDesc(String normalizedPhone);
 
     // إضافة الدوال المطلوبة
     List<UserSession> findByIssuedAtAfter(OffsetDateTime issuedAt);
@@ -147,4 +148,9 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
     @Modifying
     @Query("UPDATE UserSession s SET s.active = false, s.revokedAt = CURRENT_TIMESTAMP WHERE s.user.id = :userId AND s.active = true")
     void revokeAllActiveSessionsForUser(@Param("userId") UUID userId);
+
+    Optional<UserSession> findByUser_Id(UUID userId);
+
+    @Query("SELECT us FROM UserSession us WHERE us.active = true")
+    List<UserSession> findAllActiveSessions();
 }

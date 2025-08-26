@@ -2,19 +2,18 @@
 package com.nova.poneglyph.config.v2;
 
 import com.nova.poneglyph.config.v2.csrf.CustomCsrfTokenRepository;
-import com.nova.poneglyph.config.v2.kms.KmsProvider;
-import com.nova.poneglyph.config.v2.kms.NoopKmsProvider;
 import com.nova.poneglyph.service.audit.AuditService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -45,7 +44,10 @@ public class SecurityConfig {
                                 "/api/auth/token/**",
                                 "/api/auth/sessions/**", // إضافة هذا الخط الهام
                                 "/api/auth/logout",
-                                "/ws/**"
+                                "/ws/**",
+                                "/api/contacts/**",
+                                "/api/user/**",
+                                "/ws-native/**"
                         ) // استثناء بعض المسارات من CSRF
                 )
                 .authorizeHttpRequests(auth -> auth
@@ -55,13 +57,26 @@ public class SecurityConfig {
                                 "/api/auth/logout",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
-                                "/ws/**"
+                                "/ws/**",
+                                "/ws-native/**"
                         ).permitAll()
+//                        .requestMatchers("/ws/**",
+//                                "/ws-native/**",
+//                                "/topic/**",
+//                                "/queue/**",
+//                                "/app/**").authenticated()
                         .requestMatchers("/api/auth/sessions/**").authenticated()
                         .anyRequest().authenticated()
+
                 )
+
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                new HttpStatusEntryPoint(HttpStatus.FORBIDDEN))
                 )
                 // ترتيب الفلاتر: أولاً JwtAuth ثم audit (أو العكس حسب رغبتك)
                 // غير ترتيب الفلاتر: JwtAuth أولاً ثم Audit

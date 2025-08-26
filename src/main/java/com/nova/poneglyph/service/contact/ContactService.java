@@ -6,7 +6,7 @@ import com.nova.poneglyph.domain.enums.SyncStatus;
 import com.nova.poneglyph.domain.user.Contact;
 import com.nova.poneglyph.domain.user.User;
 import com.nova.poneglyph.dto.contactDto.ContactDto;
-import com.nova.poneglyph.dto.contactDto.ContactSyncDto;
+import com.nova.poneglyph.dto.contactDto.ContactSyncRequest;
 import com.nova.poneglyph.exception.ContactException;
 
 import com.nova.poneglyph.repository.ContactRepository;
@@ -21,6 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static com.nova.poneglyph.util.PhoneUtil.MIN_PHONE_LENGTH;
+
+
 @Service
 @RequiredArgsConstructor
 public class ContactService {
@@ -30,46 +33,86 @@ public class ContactService {
     private final PhoneUtil phoneUtil;
     private final PresenceService presenceService;
 
-    @Transactional
-    public void syncContacts(UUID userId, ContactSyncDto syncDto) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ContactException("User not found"));
+//    @Transactional
+//    public void syncContacts(UUID userId, ContactSyncRequest syncDto) {
+//        User user = userRepository.findById(userId)
+//                .orElseThrow(() -> new ContactException("User not found"));
+//
+//        List<Contact> newContacts = new ArrayList<>();
+//
+//        for (ContactDto contactDto : syncDto.getContacts()) {
+//            String normalized = phoneUtil.normalizePhone(contactDto.getPhone());
+//
+//            Contact contact = contactRepository.findByUserAndNormalizedPhone(user, normalized)
+//                    .orElse(new Contact());
+//
+//            contact.setUser(user);
+//            contact.setContactPhone(contactDto.getPhone());
+//            contact.setContactName(contactDto.getName());
+//            contact.setNormalizedPhone(normalized);
+//            contact.setLastSeen(presenceService.getLastActiveForPhone(normalized));
+//            contact.setRegistered(userRepository.existsByNormalizedPhone(normalized));
+//            contact.setBlocked(false);
+//            contact.setSyncStatus(SyncStatus.SYNCED);
+//
+//            newContacts.add(contact);
+//        }
+//
+//        // Delete old contacts not in new list
+//
+//        //في ContactService, قبل استدعاءها قم بتحويل قائمة Contact إلى قائمة الهواتف:
+//        List<String> phoneList = newContacts.stream()
+//                .map(Contact::getNormalizedPhone)
+//                .toList();
+//
+//        contactRepository.deleteByUserAndNotInList(user, phoneList);
+//
+////        contactRepository.deleteByUserAndNotInList(user, newContacts);
+//
+//        // Save new contacts
+//        contactRepository.saveAll(newContacts);
+//    }
 
-        List<Contact> newContacts = new ArrayList<>();
+@Transactional
+public void syncContacts(UUID userId, ContactSyncRequest syncDto) {
+    User user = userRepository.findById(userId)
+            .orElseThrow(() -> new ContactException("User not found"));
 
-        for (ContactDto contactDto : syncDto.getContacts()) {
-            String normalized = phoneUtil.normalizePhone(contactDto.getPhone());
+    List<Contact> newContacts = new ArrayList<>();
 
-            Contact contact = contactRepository.findByUserAndNormalizedPhone(user, normalized)
-                    .orElse(new Contact());
+    for (ContactDto contactDto : syncDto.getContacts()) {
+        String normalized = PhoneUtil.normalizePhone(contactDto.getPhone());
 
-            contact.setUser(user);
-            contact.setContactPhone(contactDto.getPhone());
-            contact.setContactName(contactDto.getName());
-            contact.setNormalizedPhone(normalized);
-            contact.setLastSeen(presenceService.getLastActiveForPhone(normalized));
-            contact.setRegistered(userRepository.existsByNormalizedPhone(normalized));
-            contact.setBlocked(false);
-            contact.setSyncStatus(SyncStatus.SYNCED);
-
-            newContacts.add(contact);
+        // تخطي الأرقام القصيرة جداً
+        if (normalized.length() < MIN_PHONE_LENGTH) {
+            continue;
         }
 
-        // Delete old contacts not in new list
+        Contact contact = contactRepository.findByUserAndNormalizedPhone(user, normalized)
+                .orElse(new Contact());
 
-        //في ContactService, قبل استدعاءها قم بتحويل قائمة Contact إلى قائمة الهواتف:
-        List<String> phoneList = newContacts.stream()
-                .map(Contact::getNormalizedPhone)
-                .toList();
+        contact.setUser(user);
+        contact.setContactPhone(contactDto.getPhone());
+        contact.setContactName(contactDto.getName());
+        contact.setNormalizedPhone(normalized);
+        contact.setLastSeen(presenceService.getLastActiveForPhone(normalized));
+        contact.setRegistered(userRepository.existsByNormalizedPhone(normalized));
+        contact.setBlocked(false);
+        contact.setSyncStatus(SyncStatus.SYNCED);
 
-        contactRepository.deleteByUserAndNotInList(user, phoneList);
-
-//        contactRepository.deleteByUserAndNotInList(user, newContacts);
-
-        // Save new contacts
-        contactRepository.saveAll(newContacts);
+        newContacts.add(contact);
     }
 
+    // Delete old contacts not in new list
+    List<String> phoneList = newContacts.stream()
+            .map(Contact::getNormalizedPhone)
+            .toList();
+
+    contactRepository.deleteByUserAndNotInList(user, phoneList);
+
+    // Save new contacts
+    contactRepository.saveAll(newContacts);
+}
     @Transactional
     public void blockContact(UUID userId, String phone) {
         String normalized = phoneUtil.normalizePhone(phone);

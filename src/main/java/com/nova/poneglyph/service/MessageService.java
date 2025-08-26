@@ -3,16 +3,15 @@
 //
 //
 //import com.nova.poneglyph.domain.conversation.Conversation;
+//import com.nova.poneglyph.domain.conversation.Participant;
 //import com.nova.poneglyph.domain.message.Message;
 //import com.nova.poneglyph.domain.message.MessageStatus;
 //import com.nova.poneglyph.domain.enums.DeliveryStatus;
 //import com.nova.poneglyph.domain.user.User;
-//import com.nova.poneglyph.dto.MessageSendDto;
+//
+//import com.nova.poneglyph.dto.chatDto.MessageSendDto;
 //import com.nova.poneglyph.exception.MessageException;
-//import com.nova.poneglyph.repository.ConversationRepository;
-//import com.nova.poneglyph.repository.MessageRepository;
-//import com.nova.poneglyph.repository.MessageStatusRepository;
-//import com.nova.poneglyph.repository.UserRepository;
+//import com.nova.poneglyph.repository.*;
 //import com.nova.poneglyph.util.EncryptionUtil;
 //import lombok.RequiredArgsConstructor;
 //import org.springframework.stereotype.Service;
@@ -31,6 +30,7 @@
 //    private final ConversationRepository conversationRepository;
 //    private final UserRepository userRepository;
 //    private final WebSocketService webSocketService;
+//    private final ParticipantRepository participantRepository;
 //
 //    @Transactional
 //    public void sendMessage(UUID conversationId, UUID senderId, MessageSendDto dto) {

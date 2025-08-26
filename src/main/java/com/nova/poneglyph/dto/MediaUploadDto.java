@@ -5,15 +5,12 @@ package com.nova.poneglyph.dto;
 import org.springframework.web.multipart.MultipartFile;
 
 public class MediaUploadDto {
-    private MultipartFile file;
+
     private String type;        // image, video, audio
     private String description;
     private String messageId;   // لربط الملف بالرسالة
     private Integer durationSec;   // للفيديو أو الصوت
 
-    // Getters & Setters
-    public MultipartFile getFile() { return file; }
-    public void setFile(MultipartFile file) { this.file = file; }
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }

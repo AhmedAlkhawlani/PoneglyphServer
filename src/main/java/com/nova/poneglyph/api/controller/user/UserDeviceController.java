@@ -1,30 +1,29 @@
-package com.nova.poneglyph.api.controller.contact;
-
-
+package com.nova.poneglyph.api.controller.user;
 
 import com.nova.poneglyph.config.v2.CustomUserDetails;
-import com.nova.poneglyph.dto.contactDto.ContactDto;
-import com.nova.poneglyph.dto.contactDto.ContactSyncRequest;
+import com.nova.poneglyph.dto.userDto.DeviceRegistrationDto;
+import com.nova.poneglyph.dto.userDto.UserDeviceDto;
 import com.nova.poneglyph.exception.AuthorizationException;
-import com.nova.poneglyph.service.contact.ContactService;
+import com.nova.poneglyph.service.user.UserDeviceService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/contacts")
+@RequestMapping("/api/user/devices")
 @RequiredArgsConstructor
-public class ContactController {
+public class UserDeviceController {
 
-    private final ContactService contactService;
+    private final UserDeviceService userDeviceService;
 
-    @PostMapping("/sync")
-    public ResponseEntity<Void> syncContacts(
-            @RequestBody ContactSyncRequest syncDto,
+    @PostMapping
+    public ResponseEntity<UserDeviceDto> registerDevice(
+            @RequestBody DeviceRegistrationDto dto,
             @AuthenticationPrincipal CustomUserDetails userDetails,
             HttpServletRequest servletRequest) {
 
@@ -34,12 +33,28 @@ public class ContactController {
 
         UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
 
-        contactService.syncContacts(userId, syncDto);
+        UserDeviceDto device = userDeviceService.registerDevice(userId, dto);
+        return ResponseEntity.ok(device);
+    }
+
+    @DeleteMapping("/{deviceId}")
+    public ResponseEntity<Void> revokeDevice(
+            @PathVariable UUID deviceId,
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            HttpServletRequest servletRequest) {
+
+        if (userDetails == null) {
+            throw new AuthorizationException("Unauthenticated");
+        }
+
+        UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
+
+        userDeviceService.revokeDevice(userId, deviceId);
         return ResponseEntity.ok().build();
     }
 
     @GetMapping
-    public ResponseEntity<List<ContactDto>> getContacts(
+    public ResponseEntity<List<UserDeviceDto>> getUserDevices(
             @AuthenticationPrincipal CustomUserDetails userDetails,
             HttpServletRequest servletRequest) {
 
@@ -49,38 +64,7 @@ public class ContactController {
 
         UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
 
-        return ResponseEntity.ok(contactService.getContacts(userId));
-    }
-
-    @PostMapping("/block/{phone}")
-    public ResponseEntity<Void> blockContact(
-            @PathVariable String phone,
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            HttpServletRequest servletRequest) {
-
-        if (userDetails == null) {
-            throw new AuthorizationException("Unauthenticated");
-        }
-
-        UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
-
-        contactService.blockContact(userId, phone);
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/unblock/{phone}")
-    public ResponseEntity<Void> unblockContact(
-            @PathVariable String phone,
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            HttpServletRequest servletRequest) {
-
-        if (userDetails == null) {
-            throw new AuthorizationException("Unauthenticated");
-        }
-
-        UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
-
-        contactService.unblockContact(userId, phone);
-        return ResponseEntity.ok().build();
+        List<UserDeviceDto> devices = userDeviceService.getUserDevices(userId);
+        return ResponseEntity.ok(devices);
     }
 }

@@ -1,4 +1,3 @@
-
 package com.nova.poneglyph.config.v2;
 
 import com.nova.poneglyph.service.audit.AuditService;
@@ -9,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,20 +39,24 @@ public class SecurityAuditFilter extends OncePerRequestFilter {
 
         // تسجيل حدث التدقيق
         if (shouldAuditRequest(requestUri)) {
-            UUID actorId = getCurrentUserId(); // استخدام الدالة المعدلة
+            UUID actorId = getCurrentUserId();
             String action = method + " " + requestUri;
+
+            // استخدام HashMap بدلاً من Map.of لتجنب مشاكل القيم null
+            Map<String, Object> details = new HashMap<>();
+            details.put("method", method);
+            details.put("status", status);
+            details.put("ip", remoteAddr != null ? remoteAddr : "unknown");
+
+            String userAgent = request.getHeader("User-Agent");
+            details.put("user_agent", userAgent != null ? userAgent : "unknown");
 
             auditService.logEvent(
                     actorId,
                     "HTTP_REQUEST",
                     "endpoint",
                     requestUri,
-                    Map.of(
-                            "method", method,
-                            "status", status,
-                            "ip", remoteAddr,
-                            "user_agent", request.getHeader("User-Agent")
-                    )
+                    details
             );
         }
     }
@@ -62,7 +66,7 @@ public class SecurityAuditFilter extends OncePerRequestFilter {
         return !requestUri.startsWith("/actuator") &&
                 !requestUri.startsWith("/swagger") &&
                 !requestUri.startsWith("/v3/api-docs") &&
-                !requestUri.contains("/auth/"); // استبعاد مسارات المصادقة
+                !requestUri.contains("/auth/");
     }
 
     private UUID getCurrentUserId() {

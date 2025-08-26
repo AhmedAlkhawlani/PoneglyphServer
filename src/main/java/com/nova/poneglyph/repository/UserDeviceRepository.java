@@ -5,6 +5,7 @@ import com.nova.poneglyph.domain.user.UserDevice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,4 +16,5 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, UUID> {
 
     Optional<UserDevice> findByUserAndDeviceId(User user, String deviceId);
 
+    List<UserDevice> findByUser(User user);
 }

@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -167,5 +168,10 @@ public class SessionService {
 
             log.debug("Session and associated tokens revoked for jti: {}", jti);
         });
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserSession> getAllActiveSessions() {
+        return sessionRepository.findAllActiveSessions();
     }
 }

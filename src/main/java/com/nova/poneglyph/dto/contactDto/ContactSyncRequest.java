@@ -7,7 +7,7 @@ import lombok.Data;
 import java.util.List;
 
 @Data
-public class ContactSyncDto {
+public class ContactSyncRequest {
     private List<ContactDto> contacts;
 }
 

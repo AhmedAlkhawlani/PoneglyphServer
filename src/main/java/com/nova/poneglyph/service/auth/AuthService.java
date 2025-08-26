@@ -35,6 +35,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 
+import static com.nova.poneglyph.util.PhoneUtil.MIN_PHONE_LENGTH;
+
 @Log4j2
 @Service
 @RequiredArgsConstructor
@@ -121,9 +123,14 @@ public class AuthService {
     public AuthResponseDto verifyOtp(OtpVerifyDto verifyDto) {
 
         try {
+            // توحيد تنسيق رقم الهاتف قبل التحقق
             String normalized = PhoneUtil.normalizePhone(verifyDto.getPhone());
-            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
+            // التحقق من أن رقم الهاتف صالح
+            if (normalized.length() < MIN_PHONE_LENGTH) {
+                throw new InvalidPhoneNumberException("Phone number is too short");
+            }
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Optional<OtpCode> otpOptional = otpCodeRepository.findLatestValidOtp(normalized, now);
             if (otpOptional.isEmpty()) {
                 auditService.logAuthEvent(null, "OTP_VERIFY", "FAILED_NO_OTP", verifyDto.getIp());
@@ -562,14 +569,26 @@ public class AuthService {
     private User createUserIfNotExists(String phone) {
         User user = new User();
         user.setPhoneNumber(phone);
-        user.setCountryCode(phone.substring(0, Math.min(phone.length(), 5)));
+
+        // استخراج رمز الدولة من رقم الهاتف
+        String countryCode = PhoneUtil.extractCountryCode(phone);
+        if (countryCode == null) {
+            // إذا لم يتمكن من استخراج رمز الدولة، نستخدم رمز افتراضي (مثل 966 للمملكة العربية السعودية)
+            countryCode = "966";
+        }
+        user.setCountryCode(countryCode);
+
         user.setVerified(true);
-        user.setNormalizedPhone(PhoneUtil.normalizePhone(phone));
+
+        // توحيد تنسيق رقم الهاتف
+        String normalizedPhone = PhoneUtil.normalizePhone(phone);
+        user.setNormalizedPhone(normalizedPhone);
+
         user.setAccountStatus(AccountStatus.ACTIVE);
         try {
             return userRepository.save(user);
         } catch (DataIntegrityViolationException ex) {
-            return userRepository.findByNormalizedPhone(PhoneUtil.normalizePhone(phone))
+            return userRepository.findByNormalizedPhone(normalizedPhone)
                     .orElseThrow(() -> ex);
         }
     }
