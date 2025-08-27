@@ -6,6 +6,7 @@ import com.nova.poneglyph.domain.auth.RefreshToken;
 import com.nova.poneglyph.domain.enums.AccountStatus;
 import com.nova.poneglyph.domain.user.User;
 import com.nova.poneglyph.domain.user.UserDevice;
+import com.nova.poneglyph.domain.user.UserProfile;
 import com.nova.poneglyph.domain.user.UserSession;
 import com.nova.poneglyph.dto.authDto.AuthResponseDto;
 import com.nova.poneglyph.dto.authDto.OtpRequestDto;
@@ -30,6 +31,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -56,6 +58,7 @@ public class AuthService {
     private final OtpProcessingService otpProcessingService;
     private final UserDeviceRepository userDeviceRepository;
     private final KeyStorageService keyStorageService;
+    private final UserProfileRepository userProfileRepository;
 
     @Value("${app.jwt.accessExpirationSeconds:${jwt.access.expiration:1800}}")
     private long accessExpiration;
@@ -104,6 +107,8 @@ public class AuthService {
         log.info("OTP issued for phone={} (expires in {}m)", maskPhone(normalized), otpExpirationMinutes);
 
         log.info("OTP  phone={} ", otp);
+        log.debug("OTP (masked) for phone {}: {}", maskPhone(normalized), "***");
+
         // تدقيق
         auditService.logAuthEvent(null, "OTP_REQUEST", "SENT", requestDto.getIp());
     }
@@ -600,13 +605,42 @@ public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
             throw new TokenRefreshException("Refresh token expired");
         }
 
+
+
         // التحقق من hash التوكن
         String candidateHash = encryptionUtil.hash(rawToken);
-        if (!candidateHash.equals(dbToken.getRefreshHash())) {
+//        byte[] candidate = Base64.getDecoder().decode(candidateHash);
+//        byte[] stored = Base64.getDecoder().decode(dbToken.getRefreshHash());
+//        if (!MessageDigest.isEqual(candidate, stored)) {
+//            log.warn("Refresh token hash mismatch jti={}, user={}", dbToken.getJti(), dbToken.getUser().getId());
+//            revokeAllTokensForUser(dbToken.getUser().getId(), "Token hash mismatch detected");
+//            auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REUSE_DETECTED", "All tokens revoked");
+//            throw new TokenReuseException("Token mismatch / reuse detected");
+//        }
+        // المقارنة الآن ثابتة الزمن (تصمد أمام هجمات التوقيت)
+        if (!secureEqualsBase64(candidateHash, dbToken.getRefreshHash())) {
             log.warn("Refresh token hash mismatch jti={}, user={}", dbToken.getJti(), dbToken.getUser().getId());
             revokeAllTokensForUser(dbToken.getUser().getId(), "Token hash mismatch detected");
             auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REUSE_DETECTED", "All tokens revoked");
             throw new TokenReuseException("Token mismatch / reuse detected");
+        }
+//        if (!candidateHash.equals(dbToken.getRefreshHash())) {
+//            log.warn("Refresh token hash mismatch jti={}, user={}", dbToken.getJti(), dbToken.getUser().getId());
+//            revokeAllTokensForUser(dbToken.getUser().getId(), "Token hash mismatch detected");
+//            auditService.logSecurityEvent(dbToken.getUser().getId(), "TOKEN_REUSE_DETECTED", "All tokens revoked");
+//            throw new TokenReuseException("Token mismatch / reuse detected");
+//        }
+    }
+    // دالة مساعدة ثابتة الزمن للمقارنة (Base64-encoded digests)
+    private static boolean secureEqualsBase64(String aBase64, String bBase64) {
+        if (aBase64 == null || bBase64 == null) return false;
+        try {
+            byte[] a = Base64.getDecoder().decode(aBase64);
+            byte[] b = Base64.getDecoder().decode(bBase64);
+            return MessageDigest.isEqual(a, b);
+        } catch (IllegalArgumentException ex) {
+            // فشل في فك Base64 => لا يطابق
+            return false;
         }
     }
     /* ===========================
@@ -627,7 +661,12 @@ public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
 
             refreshTokenRepository.findByJti(jti).ifPresent(token -> {
                 String candidateHash = encryptionUtil.hash(refreshTokenRaw);
-                if (candidateHash.equals(token.getRefreshHash())) {
+
+                byte[] candidate = Base64.getDecoder().decode(candidateHash);
+                byte[] stored = Base64.getDecoder().decode(token.getRefreshHash());
+
+                if (!MessageDigest.isEqual(candidate, stored)) {
+                    log.warn("Refresh token hash mismatch jti={}, user={}", token.getJti(), token.getUser().getId());
                     // إبطال التوكن
                     token.setRevokedAt(OffsetDateTime.now(ZoneOffset.UTC));
                     refreshTokenRepository.save(token);
@@ -637,10 +676,26 @@ public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
 
                     log.debug("Logout ok: revoked jti={}", jti);
                     auditService.logSecurityEvent(token.getUser().getId(), "LOGOUT", "SUCCESS");
-                } else {
+//                    throw new TokenReuseException("Token mismatch / reuse detected");
+                }else {
                     log.warn("Logout: token hash mismatch jti={}", jti);
                     auditService.logSecurityEvent(token.getUser().getId(), "LOGOUT", "FAILED_HASH_MISMATCH");
+
                 }
+//                if (candidateHash.equals(token.getRefreshHash())) {
+//                    // إبطال التوكن
+//                    token.setRevokedAt(OffsetDateTime.now(ZoneOffset.UTC));
+//                    refreshTokenRepository.save(token);
+//
+//                    // استخدام الدالة المحسنة لإلغاء الجلسة والتوكنات
+//                    sessionService.revokeSessionAndTokensByJti(jti);
+//
+//                    log.debug("Logout ok: revoked jti={}", jti);
+//                    auditService.logSecurityEvent(token.getUser().getId(), "LOGOUT", "SUCCESS");
+//                } else {
+//                    log.warn("Logout: token hash mismatch jti={}", jti);
+//                    auditService.logSecurityEvent(token.getUser().getId(), "LOGOUT", "FAILED_HASH_MISMATCH");
+//                }
             });
         } catch (Exception ex) {
             log.error("Logout error: {}", ex.getMessage(), ex);
@@ -918,7 +973,18 @@ public AuthResponseDto refreshToken(RefreshRequestDto refreshDto) {
 
         user.setAccountStatus(AccountStatus.ACTIVE);
         try {
-            return userRepository.save(user);
+
+            User savedUser=userRepository.save(user);
+            // إنشاء ملف تعريف افتراضي للمستخدم الجديد
+            UserProfile defaultProfile = new UserProfile();
+            defaultProfile.setUser(savedUser);
+            defaultProfile.setDisplayName(savedUser.getDisplayName());
+            defaultProfile.setAboutText("");
+            defaultProfile.setStatusEmoji("");
+            defaultProfile.setLastProfileUpdate(OffsetDateTime.now());
+
+            userProfileRepository.save(defaultProfile);
+            return savedUser;
         } catch (DataIntegrityViolationException ex) {
             return userRepository.findByNormalizedPhone(normalizedPhone)
                     .orElseThrow(() -> ex);

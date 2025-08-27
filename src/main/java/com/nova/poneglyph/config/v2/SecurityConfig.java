@@ -46,6 +46,7 @@ public class SecurityConfig {
                                 "/api/auth/logout",
                                 "/ws/**",
                                 "/api/contacts/**",
+                                "/api/conversations/**",
                                 "/api/user/**",
                                 "/ws-native/**"
                         ) // استثناء بعض المسارات من CSRF

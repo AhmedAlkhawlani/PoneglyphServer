@@ -291,6 +291,30 @@ public final class EncryptionUtil {
             throw new RuntimeException("Decryption failed", e);
         }
     }
+    /// الأفضل – تخزين بايتات خام
+
+    public byte[] encryptToBytes(String plaintext, String base64Key) {
+        try {
+            byte[] keyBytes = decodeAndValidateKey(base64Key);
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            secureRandom.nextBytes(iv);
+
+            SecretKeySpec keySpec = new SecretKeySpec(keyBytes, "AES");
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
+            cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec);
+
+            byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+
+            ByteBuffer bb = ByteBuffer.allocate(iv.length + ciphertext.length);
+            bb.put(iv);
+            bb.put(ciphertext);
+            return bb.array(); // ✅ byte[]
+        } catch (Exception e) {
+            throw new RuntimeException("Encryption failed", e);
+        }
+    }
+
 
     /**
      * SHA-256 hashing with base64 output
@@ -438,6 +462,29 @@ public final class EncryptionUtil {
             throw new RuntimeException("Decryption with password failed", e);
         }
     }
+    /// الأفضل – تخزين بايتات خام
+    public String decryptFromBytes(byte[] ivCiphertext, String base64Key) {
+        try {
+            byte[] keyBytes = decodeAndValidateKey(base64Key);
+
+            ByteBuffer bb = ByteBuffer.wrap(ivCiphertext);
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            bb.get(iv);
+            byte[] ciphertext = new byte[bb.remaining()];
+            bb.get(ciphertext);
+
+            SecretKeySpec keySpec = new SecretKeySpec(keyBytes, "AES");
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            GCMParameterSpec spec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, spec);
+
+            byte[] plaintext = cipher.doFinal(ciphertext);
+            return new String(plaintext, StandardCharsets.UTF_8); // ✅ String بعد فك التشفير
+        } catch (Exception e) {
+            throw new RuntimeException("Decryption failed", e);
+        }
+    }
+
 
     /**
      * اشتقاق مفتاح من كلمة المرور باستخدام PBKDF2
