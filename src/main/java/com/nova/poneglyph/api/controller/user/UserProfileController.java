@@ -1,6 +1,5 @@
 package com.nova.poneglyph.api.controller.user;
 
-
 import com.nova.poneglyph.config.v2.CustomUserDetails;
 import com.nova.poneglyph.dto.userDto.UserProfileDto;
 import com.nova.poneglyph.exception.AuthorizationException;
@@ -31,8 +30,7 @@ public class UserProfileController {
             throw new AuthorizationException("Unauthenticated");
         }
 
-        UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
-
+        UUID userId = userDetails.getId();
         UserProfileDto updatedProfile = userProfileService.updateProfile(userId, profileDto);
         return ResponseEntity.ok(updatedProfile);
     }
@@ -47,8 +45,7 @@ public class UserProfileController {
             throw new AuthorizationException("Unauthenticated");
         }
 
-        UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
-
+        UUID userId = userDetails.getId();
         String imageUrl = userProfileService.uploadProfileImage(userId, file);
         return ResponseEntity.ok(imageUrl);
     }
@@ -62,8 +59,7 @@ public class UserProfileController {
             throw new AuthorizationException("Unauthenticated");
         }
 
-        UUID userId = userDetails.getId(); // استخدم الـ UUID مباشرة من CustomUserDetails
-
+        UUID userId = userDetails.getId();
         UserProfileDto profile = userProfileService.getProfile(userId);
         return ResponseEntity.ok(profile);
     }

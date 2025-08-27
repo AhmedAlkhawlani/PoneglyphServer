@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -119,6 +120,37 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
+
+// Add this method to your GlobalExceptionHandler class
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLocking(ObjectOptimisticLockingFailureException ex) {
+        log.warn("Optimistic locking failure: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                "CONCURRENT_MODIFICATION",
+                "The resource was modified by another request. Please try again."
+       ,HttpStatus.CONFLICT.value() );
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    }
+    @ExceptionHandler(UserException.class)
+    public ResponseEntity<ErrorResponse> handleUserException(UserException ex) {
+        log.warn("User exception: {}", ex.getMessage());
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                "USER_ERROR",
+                ex.getMessage(),
+                HttpStatus.NOT_FOUND.value()
+        );
+
+        // استخدام NOT_FOUND للخطأ "Profile not found"
+        if (ex.getMessage().contains("not found")) {
+            return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+        }
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
     // سجل (Record) لتهيئة استجابة الخطأ بشكل متسق
     public record ErrorResponse(String code, String message, int status) {}
 }
