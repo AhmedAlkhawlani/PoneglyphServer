@@ -51,6 +51,9 @@ public class Message extends Auditable {
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
+    @Column(name = "local_id")
+    private String localId; // إضافة هذا الحقل
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reply_to_id")
     private Message replyTo;

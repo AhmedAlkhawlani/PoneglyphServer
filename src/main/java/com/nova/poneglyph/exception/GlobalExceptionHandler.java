@@ -151,6 +151,25 @@ public class GlobalExceptionHandler {
 
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
+
+    @ExceptionHandler(ConversationNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleConversationNotFound(ConversationNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse("CONVERSATION_NOT_FOUND", ex.getMessage(),HttpStatus.NOT_FOUND.value());
+        return new ResponseEntity<>(error,HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(UserNotAuthorizedException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotAuthorized(UserNotAuthorizedException ex) {
+        ErrorResponse error = new ErrorResponse("UNAUTHORIZED", ex.getMessage(),HttpStatus.FORBIDDEN.value());
+        return new ResponseEntity<>(error,HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler(ParticipantNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleParticipantNotFound(ParticipantNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse("PARTICIPANT_NOT_FOUND", ex.getMessage(),HttpStatus.NOT_FOUND.value());
+        return new ResponseEntity<>(error,HttpStatus.NOT_FOUND);
+    }
+
     // سجل (Record) لتهيئة استجابة الخطأ بشكل متسق
     public record ErrorResponse(String code, String message, int status) {}
 }

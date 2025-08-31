@@ -1,7 +1,4 @@
 package com.nova.poneglyph.service.moderation;
-
-
-
 import com.nova.poneglyph.domain.enums.BanType;
 import com.nova.poneglyph.domain.enums.ReportStatus;
 import com.nova.poneglyph.domain.moderation.Report;
@@ -61,14 +58,16 @@ public class ModerationService {
 
     @Transactional
     public void banUser(String phone, BanType banType, String reason, String details, UUID bannedBy) {
-        String normalized = PhoneUtil.normalizePhone(phone);
+//        String normalized = PhoneUtil.normalizePhone(phone);
+        String defaultRegion = PhoneUtil.extractRegionFromE164(phone);
+        String normalizedPhone = PhoneUtil.normalizeForStorage(phone, defaultRegion);
 
         // Deactivate any existing bans
 //        systemBanRepository.deactivateExistingBans(normalized);
 
         SystemBan ban = new SystemBan();
         ban.setPhoneNumber(phone);
-        ban.setNormalizedPhone(normalized);
+        ban.setNormalizedPhone(normalizedPhone);
         ban.setBanType(banType);
         ban.setBanReason(reason);
         ban.setReasonDetails(details);

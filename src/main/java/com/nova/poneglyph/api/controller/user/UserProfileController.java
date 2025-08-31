@@ -63,4 +63,18 @@ public class UserProfileController {
         UserProfileDto profile = userProfileService.getProfile(userId);
         return ResponseEntity.ok(profile);
     }
+
+    @GetMapping("/{userId}")
+    public ResponseEntity<UserProfileDto> getProfileById(
+            @PathVariable String userId,
+            HttpServletRequest servletRequest) {
+
+//        if (userDetails == null) {
+//            throw new AuthorizationException("Unauthenticated");
+//        }
+
+        UUID userId2 = UUID.fromString(userId);
+        UserProfileDto profile = userProfileService.getProfile(userId2);
+        return ResponseEntity.ok(profile);
+    }
 }

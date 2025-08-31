@@ -33,6 +33,13 @@ public class Conversation extends Auditable {
 
     @Column(name = "is_encrypted")
     private boolean encrypted = true;
+    // في com.nova.poneglyph.domain.conversation.Conversation
+    @Column(name = "title", length = 255)
+    private String title;
+
+    // (اختياري) حقل عد المشتركين مخزنًا
+    @Column(name = "participants_count", nullable = false)
+    private Integer participantsCount = 0;
 
     @Column(name = "encryption_key")
     private String encryptionKey;

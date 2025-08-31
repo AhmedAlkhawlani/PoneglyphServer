@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -18,4 +19,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     List<Message> findByConversationOrderByCreatedAtDesc(Conversation conversation);
 
     List<Message> findByConversationOrderByCreatedAtDesc(Conversation conversation, Pageable pageable);
+
+    Optional<Message> findByLocalId(String localId);
+
+    List<Message> findDistinctByConversationOrderByCreatedAtAsc(Conversation conversation, Pageable pageable);
 }

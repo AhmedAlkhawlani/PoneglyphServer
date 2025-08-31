@@ -5,7 +5,6 @@ import lombok.Data;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
-
 @Data
 public class MessageDTO {
     private UUID id;
@@ -20,4 +19,5 @@ public class MessageDTO {
     private List<MediaDTO> mediaAttachments;
     private MessageDTO replyTo;
     private String status;
+    private String localId; // إضافة هذا الحقل
 }

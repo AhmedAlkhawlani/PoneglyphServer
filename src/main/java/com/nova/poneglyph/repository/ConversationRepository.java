@@ -3,6 +3,7 @@ package com.nova.poneglyph.repository;
 import com.nova.poneglyph.domain.conversation.Conversation;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -18,4 +19,6 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
       where c.type = com.nova.poneglyph.domain.enums.ConversationType.DIRECT
     """)
     Optional<Conversation> findDirectConversation(UUID u1, UUID u2);
+    @Query("SELECT COUNT(p) FROM Participant p WHERE p.conversation.id = :convId")
+    long countByConversationId(@Param("convId") UUID convId);
 }

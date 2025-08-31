@@ -1,4 +1,4 @@
-package com.nova.poneglyph.controller.websocket;
+package com.nova.poneglyph.config.websocket;
 
 import com.nova.poneglyph.dto.chatDto.MessageDto;
 import com.nova.poneglyph.service.WebSocketService;

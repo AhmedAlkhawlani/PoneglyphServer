@@ -13,7 +13,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
 
     Optional<RefreshToken> findByJti(UUID jti);
 
-    @Query("select rt from RefreshToken rt where rt.session.id = :sessionId")
+    @Query("select rt from RefreshToken rt where rt.session.id = :sessionId and rt.revokedAt is null ")
     Optional<RefreshToken> findBySessionId(@Param("sessionId") UUID sessionId);
 
     @Modifying

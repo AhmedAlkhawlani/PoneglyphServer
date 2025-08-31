@@ -27,14 +27,17 @@ public class UserGuardService {
 
     private final UserRepository userRepository;
     private final SystemBanRepository systemBanRepository;
-    private final PhoneUtil phoneUtil;
+//    private final PhoneUtil phoneUtil;
 
     /**
      * التحقق من إمكانية إنشاء حساب جديد
      */
     @Transactional(readOnly = true)
     public boolean canCreateAccount(String phoneNumber) {
-        String normalizedPhone = phoneUtil.normalizePhone(phoneNumber);
+//        String normalizedPhone = phoneUtil.normalizePhone(phoneNumber);
+        String defaultRegion = PhoneUtil.extractRegionFromE164(phoneNumber);
+        String normalizedPhone = PhoneUtil.normalizeForStorage(phoneNumber, defaultRegion);
+
 
         // التحقق من الحظر النظامي
         if (isBannedBySystem(normalizedPhone)) {
@@ -155,7 +158,10 @@ public class UserGuardService {
      */
     @Transactional
     public void recordFailedLoginAttempt(String phoneNumber, String ipAddress) {
-        String normalizedPhone = phoneUtil.normalizePhone(phoneNumber);
+//        String normalizedPhone = phoneUtil.normalizePhone(phoneNumber);
+        String defaultRegion = PhoneUtil.extractRegionFromE164(phoneNumber);
+        String normalizedPhone = PhoneUtil.normalizeForStorage(phoneNumber, defaultRegion);
+
         Optional<User> userOpt = userRepository.findByNormalizedPhone(normalizedPhone);
 
         userOpt.ifPresent(user -> {

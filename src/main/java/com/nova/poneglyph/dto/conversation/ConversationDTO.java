@@ -14,6 +14,11 @@ public class ConversationDTO {
     private OffsetDateTime lastMessageAt;
     private List<ParticipantDTO> participants;
     private MessageDTO lastMessage;
+    // اسم العرض: للطرف الآخر لدى DIRECT، وللمجموعة نستخدم title
+    private String displayName;
+
+    // عدد المشتركين (مفيد للمجموعات)
+    private Integer participantCount;
     private Integer unreadCount;
 }
 

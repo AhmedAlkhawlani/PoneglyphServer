@@ -48,6 +48,7 @@ public class SecurityConfig {
                                 "/api/contacts/**",
                                 "/api/conversations/**",
                                 "/api/user/**",
+                                "/test",
                                 "/ws-native/**"
                         ) // استثناء بعض المسارات من CSRF
                 )
@@ -59,6 +60,7 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/ws/**",
+                                "/test",
                                 "/ws-native/**"
                         ).permitAll()
 //                        .requestMatchers("/ws/**",

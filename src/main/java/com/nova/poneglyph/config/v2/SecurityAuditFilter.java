@@ -66,7 +66,9 @@ public class SecurityAuditFilter extends OncePerRequestFilter {
         return !requestUri.startsWith("/actuator") &&
                 !requestUri.startsWith("/swagger") &&
                 !requestUri.startsWith("/v3/api-docs") &&
-                !requestUri.contains("/auth/");
+                !requestUri.contains("/auth/")&&
+                !requestUri.contains("/test/")&&
+        !requestUri.contains("/auth/token/refresh"); // Exclude refresh endpoint
     }
 
     private UUID getCurrentUserId() {
