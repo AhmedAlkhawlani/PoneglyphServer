@@ -215,6 +215,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String jwt = authHeader.substring(7);
 
         try {
+            // بعد التحقق من وجود التوكن
+            String issuer = jwtUtil.extractIssuer(jwt);
+            String aud = jwtUtil.extractAudience(jwt);
+//            if (!issuer.equals(this.issuer) || !audience.equals(aud)) {
+//                log.warn("Invalid issuer or audience for token: issuer={}, audience={}", issuer, aud);
+//                unauthorizedJson(request, response, HttpServletResponse.SC_UNAUTHORIZED, "invalid_token", "Invalid token issuer or audience");
+//                return;
+//            }
+
             if (tokenBlacklistService != null && tokenBlacklistService.isTokenBlacklisted(jwt)) {
                 log.warn("Blacklisted token attempt for request {}", request.getRequestURI());
                 unauthorizedJson(request, response, HttpServletResponse.SC_UNAUTHORIZED, "token_revoked", "Token has been revoked.");
