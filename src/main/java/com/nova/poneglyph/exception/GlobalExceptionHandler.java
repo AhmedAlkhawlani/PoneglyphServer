@@ -2,6 +2,7 @@ package com.nova.poneglyph.exception;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -120,6 +121,17 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
+
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccessException(DataAccessException ex) {
+        log.error("Database access error: {}", ex.getMessage(), ex);
+        ErrorResponse error = new ErrorResponse(
+                "DATABASE_ERROR",
+                "Service temporarily unavailable. Please try again later.",
+                HttpStatus.SERVICE_UNAVAILABLE.value()
+        );
+        return new ResponseEntity<>(error, HttpStatus.SERVICE_UNAVAILABLE);
+    }
 
 // Add this method to your GlobalExceptionHandler class
 

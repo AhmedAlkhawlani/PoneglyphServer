@@ -8,6 +8,8 @@ import java.util.UUID;
 
 @Data
 public class UserProfileDto {
+    private String phone; // E.164 (+966...)
+
     private UUID userId;
     private String displayName;
     private String avatarUrl;

@@ -92,6 +92,7 @@ public class UserProfileService {
     private UserProfileDto createDefaultProfileDto(User user) {
         UserProfileDto dto = new UserProfileDto();
         dto.setUserId(user.getId());
+        dto.setPhone(user.getPhoneNumber());
         dto.setDisplayName(user.getDisplayName()); // استخدام اسم العرض الافتراضي من User
         dto.setAvatarUrl(null); // لا توجد صورة افتراضية
         dto.setAboutText(""); // نص حول فارغ

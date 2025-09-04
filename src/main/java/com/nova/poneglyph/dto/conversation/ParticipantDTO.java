@@ -7,6 +7,7 @@ import java.util.UUID;
 
 @Data
 public class ParticipantDTO {
+
     private UUID userId;
     private String phoneNumber;
     private String displayName;

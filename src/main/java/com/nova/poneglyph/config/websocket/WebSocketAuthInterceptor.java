@@ -162,6 +162,7 @@ import com.nova.poneglyph.exception.AuthenticationException;
 import com.nova.poneglyph.util.JwtUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -173,7 +174,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.Map;
 
 @Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
@@ -183,24 +186,30 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final String issuer;
+    private final String audience;
 
-    public WebSocketAuthInterceptor(JwtUtil jwtUtil, TokenBlacklistService tokenBlacklistService) {
+    // حقن عبر الكونستركتور مع @Value على المعاملات
+    public WebSocketAuthInterceptor(JwtUtil jwtUtil,
+                                    TokenBlacklistService tokenBlacklistService,
+                                    @Value("${jwt.issuer:nova-poneglyph}") String issuer,
+                                    @Value("${jwt.audience:mobile-app}") String audience) {
         this.jwtUtil = jwtUtil;
         this.tokenBlacklistService = tokenBlacklistService;
+        this.issuer = issuer;
+        this.audience = audience;
     }
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(
-                message, StompHeaderAccessor.class
-        );
+        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
         if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
             try {
                 String token = extractTokenFromRequest(accessor);
 
                 if (token == null || token.isEmpty()) {
-                    log.warn("No authorization token found for WebSocket connection (Authorization header required)");
+                    log.warn("No authorization token found for WebSocket connection (Authorization header required or pass ?token= in handshake).");
                     throw new AuthenticationException("Authorization token required");
                 }
 
@@ -209,7 +218,7 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                 log.warn("WebSocket authentication failed: {}", e.getMessage());
                 throw e;
             } catch (Exception e) {
-                log.error("Unexpected error during WebSocket authentication: {}", e.getMessage());
+                log.error("Unexpected error during WebSocket authentication: {}", e.getMessage(), e);
                 throw new AuthenticationException("Authentication failed");
             }
         }
@@ -217,30 +226,33 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         return message;
     }
 
-    /**
-     * Accept only Authorization header (Bearer ...) from STOMP headers.
-     * DO NOT parse token from query string or payload to avoid logging/leakage risks.
-     */
     private String extractTokenFromRequest(StompHeaderAccessor accessor) {
         try {
-            List<String> authHeaders = accessor.getNativeHeader("Authorization");
+            var authHeaders = accessor.getNativeHeader("Authorization");
             if (authHeaders != null && !authHeaders.isEmpty()) {
                 String headerValue = authHeaders.get(0);
-                if (headerValue.startsWith("Bearer ")) {
-                    return headerValue.substring(7).trim();
-                }
+                if (headerValue.startsWith("Bearer ")) return headerValue.substring(7).trim();
                 return headerValue.trim();
             }
-            // If Authorization header is missing, do NOT fallback to query/payload
+
+            // fallback: إذا لم يرسل العميل Authorization header أثناء CONNECT، افحص attributes (من handshake query param)
+            Map<String, Object> sessionAttrs = accessor.getSessionAttributes();
+            if (sessionAttrs != null && sessionAttrs.containsKey("ws_token_query")) {
+                Object raw = sessionAttrs.get("ws_token_query");
+                if (raw instanceof String s && !s.isBlank()) {
+                    return s.trim();
+                }
+            }
+
             return null;
         } catch (Exception e) {
-            log.error("Error extracting token from websocket headers: {}", e.getMessage());
+            log.error("Error extracting token from websocket headers/session attributes: {}", e.getMessage(), e);
             return null;
         }
     }
 
     private void authenticateToken(String token, StompHeaderAccessor accessor) {
-        if (tokenBlacklistService.isTokenBlacklisted(token)) {
+        if (tokenBlacklistService != null && tokenBlacklistService.isTokenBlacklisted(token)) {
             log.warn("Blacklisted token attempt for WebSocket connection");
             throw new AuthenticationException("Token has been revoked");
         }
@@ -251,9 +263,13 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
             throw new AuthenticationException("Invalid authentication token");
         }
 
-        boolean isValid = jwtUtil.validateAccessToken(token, userIdStr);
+        // null-safe comparisons باستخدام Objects.equals
+        boolean issuerMatches = Objects.equals(jwtUtil.extractIssuer(token), this.issuer);
+        boolean audienceMatches = Objects.equals(jwtUtil.extractAudience(token), this.audience);
+
+        boolean isValid = jwtUtil.validateAccessToken(token, userIdStr) && issuerMatches && audienceMatches;
         if (!isValid) {
-            log.warn("Invalid JWT token for WebSocket connection");
+            log.warn("Invalid JWT token for WebSocket connection - issuerMatches={}, audienceMatches={}", issuerMatches, audienceMatches);
             throw new AuthenticationException("Invalid authentication token");
         }
 

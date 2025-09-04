@@ -166,6 +166,7 @@
 //    }
 //
 //}
+
 package com.nova.poneglyph.config.v2;
 
 import com.nova.poneglyph.util.JwtUtil;
@@ -178,6 +179,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -189,6 +191,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Map;
+import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
@@ -200,6 +203,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final CustomUserDetailsService userDetailsService;
     private final KeyStorageService keyStorageService; // may be used for diagnostics
     private final TokenBlacklistService tokenBlacklistService;
+
+    @Value("${jwt.issuer:nova-poneglyph}") private String issuer;
+    @Value("${jwt.audience:mobile-app}") private String audience;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -216,13 +222,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             // بعد التحقق من وجود التوكن
-            String issuer = jwtUtil.extractIssuer(jwt);
-            String aud = jwtUtil.extractAudience(jwt);
+//            String issuer = jwtUtil.extractIssuer(jwt);
+//            String aud = jwtUtil.extractAudience(jwt);
 //            if (!issuer.equals(this.issuer) || !audience.equals(aud)) {
 //                log.warn("Invalid issuer or audience for token: issuer={}, audience={}", issuer, aud);
 //                unauthorizedJson(request, response, HttpServletResponse.SC_UNAUTHORIZED, "invalid_token", "Invalid token issuer or audience");
 //                return;
 //            }
+            // استخراج القيم من التوكن — لا تسمي المتغير issuer لأن لديك field بنفس الاسم
+            String issuerFromToken = jwtUtil.extractIssuer(jwt);
+            String audFromToken = jwtUtil.extractAudience(jwt);
+
+            // null-safe comparisons
+            if (!Objects.equals(issuerFromToken, this.issuer) || !Objects.equals(audFromToken, this.audience)) {
+                log.warn("Invalid issuer or audience for token: issuer={}, audience={}", issuerFromToken, audFromToken);
+                unauthorizedJson(request, response, HttpServletResponse.SC_UNAUTHORIZED, "invalid_token", "Invalid token issuer or audience");
+                return;
+            }
+
 
             if (tokenBlacklistService != null && tokenBlacklistService.isTokenBlacklisted(jwt)) {
                 log.warn("Blacklisted token attempt for request {}", request.getRequestURI());

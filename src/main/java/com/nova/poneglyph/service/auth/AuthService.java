@@ -904,6 +904,8 @@ public class AuthService {
         catch (Exception e) {
             log.error("Error in verifyOtp for phone {}: {}", verifyDto.getPhone(), e.getMessage(), e);
             throw new OtpValidationException("Failed to verify OTP " + e.getMessage());
+        } catch (AccountDisabledException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -946,9 +948,18 @@ public class AuthService {
         }
     }
 
-    private User getUserOrCreate(String phone, String normalizedPhone) {
-        return userRepository.findByNormalizedPhone(normalizedPhone)
+    private User getUserOrCreate(String phone, String normalizedPhone) throws AccountDisabledException {
+//        return userRepository.findByNormalizedPhone(normalizedPhone)
+//                .orElseGet(() -> createUserIfNotExists(phone));
+
+        User user = userRepository.findByNormalizedPhone(normalizedPhone)
                 .orElseGet(() -> createUserIfNotExists(phone));
+        // التحقق من حالة الحساب
+        if (user.getAccountStatus() != AccountStatus.ACTIVE) {
+            auditService.logSecurityEvent(user.getId(), "LOGIN_ATTEMPT", "ACCOUNT_INACTIVE");
+            throw new AccountDisabledException("Account is disabled");
+        }
+        return user;
     }
 
     private void updateUserVerificationStatus(User user) {
@@ -1334,6 +1345,7 @@ public class AuthService {
             session = existingSession.get();
             session.setActiveJti(token.getJti());
             session.setIpAddress(ip);
+            session.setLastActivity(OffsetDateTime.now(ZoneOffset.UTC));
             session.setLastUsedAt(OffsetDateTime.now(ZoneOffset.UTC));
             session.setExpiresAt(token.getExpiresAt());
             session.setRefreshTokenHash(token.getRefreshHash());
@@ -1344,6 +1356,7 @@ public class AuthService {
                     .device(device)
                     .activeJti(token.getJti())
                     .ipAddress(ip)
+                    .lastActivity(OffsetDateTime.now(ZoneOffset.UTC))
                     .issuedAt(OffsetDateTime.now(ZoneOffset.UTC))
                     .lastUsedAt(OffsetDateTime.now(ZoneOffset.UTC))
                     .expiresAt(token.getExpiresAt())
