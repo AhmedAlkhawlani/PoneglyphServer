@@ -25,4 +25,6 @@ public interface ParticipantRepository extends JpaRepository<Participant, UUID> 
     Optional<Participant> findByConversationAndUser(Conversation conversation, User user);
 
     Optional<Participant> findByConversation_IdAndUser_Id(UUID conversationId, UUID userId);
+
+    boolean existsByConversationAndUser_Id(Conversation conversation, UUID userId);
 }

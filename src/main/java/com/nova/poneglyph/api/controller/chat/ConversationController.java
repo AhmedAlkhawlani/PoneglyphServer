@@ -1,96 +1,4 @@
-//package com.nova.poneglyph.api.controller.chat;
-//
-//import com.nova.poneglyph.config.v2.CustomUserDetails;
-//import com.nova.poneglyph.dto.conversation.ConversationDTO;
-//import com.nova.poneglyph.dto.conversation.CreateConversationRequest;
-//import com.nova.poneglyph.dto.conversation.MessageDTO;
-//import com.nova.poneglyph.dto.conversation.SendMessageRequest;
-//
-//import com.nova.poneglyph.service.WebSocketService;
-//import com.nova.poneglyph.service.chat.ConversationService;
-//import jakarta.validation.Valid;
-//import lombok.RequiredArgsConstructor;
-//import org.springframework.http.ResponseEntity;
-//import org.springframework.security.core.annotation.AuthenticationPrincipal;
-//import org.springframework.web.bind.annotation.*;
-//
-//import java.util.List;
-//import java.util.UUID;
-//
-//@RestController
-//@RequestMapping("/api/conversations")
-//@RequiredArgsConstructor
-//public class ConversationController {
-//
-//    private final ConversationService conversationService;
-//    private final WebSocketService socketService;
-//
-//    @GetMapping
-//    public ResponseEntity<List<ConversationDTO>> getUserConversations(
-//            @AuthenticationPrincipal CustomUserDetails userDetails) {
-//        UUID userId = userDetails.getId();
-//        List<ConversationDTO> conversations = conversationService.getUserConversations(userId);
-//        return ResponseEntity.ok(conversations);
-//    }
-//
-//    @PostMapping
-//    public ResponseEntity<ConversationDTO> createConversation(
-//            @AuthenticationPrincipal CustomUserDetails userDetails,
-//            @Valid @RequestBody CreateConversationRequest request) {
-//        UUID userId = userDetails.getId();
-//        ConversationDTO conversation = conversationService.createConversation(userId, request);
-//        return ResponseEntity.ok(conversation);
-//    }
-//
-//    @GetMapping("/{conversationId}")
-//    public ResponseEntity<ConversationDTO> getConversation(
-//            @AuthenticationPrincipal CustomUserDetails userDetails,
-//            @PathVariable UUID conversationId) {
-//        UUID userId = userDetails.getId();
-//        ConversationDTO conversation = conversationService.getConversation(userId, conversationId);
-//        return ResponseEntity.ok(conversation);
-//    }
-//
-//    @GetMapping("/{conversationId}/messages")
-//    public ResponseEntity<List<MessageDTO>> getMessages(
-//            @AuthenticationPrincipal CustomUserDetails userDetails,
-//            @PathVariable UUID conversationId,
-//            @RequestParam(defaultValue = "0") int page,
-//            @RequestParam(defaultValue = "50") int size) {
-//        UUID userId = userDetails.getId();
-//        List<MessageDTO> messages = conversationService.getMessages(userId, conversationId, page, size);
-//        return ResponseEntity.ok(messages);
-//    }
-//
-//    @PostMapping("/{conversationId}/messages")
-//    public ResponseEntity<MessageDTO> sendMessage(
-//            @AuthenticationPrincipal CustomUserDetails userDetails,
-//            @PathVariable UUID conversationId,
-//            @Valid @RequestBody SendMessageRequest request) {
-//        UUID userId = userDetails.getId();
-//        MessageDTO message = conversationService.sendMessage(userId, conversationId, request);
-////        socketService.notifyNewMessage(conversationId,message);
-//        return ResponseEntity.ok(message);
-//    }
-//
-//    @PutMapping("/{conversationId}/read")
-//    public ResponseEntity<Void> markAsRead(
-//            @AuthenticationPrincipal CustomUserDetails userDetails,
-//            @PathVariable UUID conversationId) {
-//        UUID userId = userDetails.getId();
-//        conversationService.markAsRead(userId, conversationId);
-//        return ResponseEntity.ok().build();
-//    }
-//
-//    @DeleteMapping("/{conversationId}")
-//    public ResponseEntity<Void> deleteConversation(
-//            @AuthenticationPrincipal CustomUserDetails userDetails,
-//            @PathVariable UUID conversationId) {
-//        UUID userId = userDetails.getId();
-//        conversationService.deleteConversation(userId, conversationId);
-//        return ResponseEntity.ok().build();
-//    }
-//}
+
 
 package com.nova.poneglyph.api.controller.chat;
 
@@ -101,6 +9,7 @@ import com.nova.poneglyph.dto.conversation.MessageDTO;
 import com.nova.poneglyph.dto.conversation.SendMessageRequest;
 import com.nova.poneglyph.service.WebSocketService;
 import com.nova.poneglyph.service.chat.ConversationService;
+import com.nova.poneglyph.service.chat.MessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -128,76 +37,45 @@ import java.util.UUID;
 public class ConversationController {
 
     private final ConversationService conversationService;
+    private final MessageService messageService;
     private final WebSocketService socketService;
 
     @GetMapping
-    public ResponseEntity<List<ConversationDTO>> getUserConversations(
-            @AuthenticationPrincipal CustomUserDetails userDetails) {
-
+    public ResponseEntity<List<ConversationDTO>> getUserConversations(@AuthenticationPrincipal CustomUserDetails userDetails) {
         UUID userId = userDetails.getId();
         List<ConversationDTO> conversations = conversationService.getUserConversations(userId);
         return ResponseEntity.ok(conversations);
     }
 
     @PostMapping
-    public ResponseEntity<ConversationDTO> createConversation(
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            @Valid @RequestBody CreateConversationRequest request) {
-
+    public ResponseEntity<ConversationDTO> createConversation(@AuthenticationPrincipal CustomUserDetails userDetails,
+                                                              @Valid @RequestBody CreateConversationRequest request) {
         UUID userId = userDetails.getId();
         ConversationDTO conversation = conversationService.createConversation(userId, request);
-
-        // إخطار عبر WebSocket للمشتركين (إن رغبت)
-        try {
-            socketService.notifyConversationCreated(conversation);
-        } catch (Exception ignored) {
-            // لا تفشل العملية الرئيسية بسبب فشل إخطار الويب سوكيت
-        }
-
-        // نعيد 201 CREATED مع DTO (لو أحببت تعيد موقع المورد: URI)
-        return ResponseEntity.ok(conversation);
-    }
-
-    @GetMapping("/{conversationId}")
-    public ResponseEntity<ConversationDTO> getConversation(
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            @PathVariable UUID conversationId) {
-
-        UUID userId = userDetails.getId();
-        ConversationDTO conversation = conversationService.getConversation(userId, conversationId);
+        try { socketService.notifyConversationCreated(conversation); } catch (Throwable ignored) {}
         return ResponseEntity.ok(conversation);
     }
 
     @GetMapping("/{conversationId}/messages")
-    public ResponseEntity<List<MessageDTO>> getMessages(
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            @PathVariable UUID conversationId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-
+    public ResponseEntity<List<MessageDTO>> getMessages(@AuthenticationPrincipal CustomUserDetails userDetails,
+                                                        @PathVariable UUID conversationId,
+                                                        @RequestParam(defaultValue = "0") int page,
+                                                        @RequestParam(defaultValue = "50") int size) {
         UUID userId = userDetails.getId();
-        List<MessageDTO> messages = conversationService.getMessages(userId, conversationId, page, size);
-        return ResponseEntity.ok(messages);
+        var list = messageService.getMessages(userId, conversationId, page, size);
+        return ResponseEntity.ok(list);
     }
 
     @PostMapping("/{conversationId}/messages")
-    public ResponseEntity<MessageDTO> sendMessage(
-            @AuthenticationPrincipal CustomUserDetails userDetails,
-            @PathVariable UUID conversationId,
-            @Valid @RequestBody SendMessageRequest request) {
-
+    public ResponseEntity<MessageDTO> sendMessage(@AuthenticationPrincipal CustomUserDetails userDetails,
+                                                  @PathVariable UUID conversationId,
+                                                  @Valid @RequestBody SendMessageRequest request) {
         UUID userId = userDetails.getId();
-        MessageDTO message = conversationService.sendMessage(userId, conversationId, request);
-
-        // أخطر المشتركين عبر WebSocket عن الرسالة الجديدة
-        try {
-            socketService.notifyNewMessage(conversationId, message);
-        } catch (Exception ignored) {
-            // لا تفشل الطلب بسبب إخطار WebSocket
-        }
-
+        MessageDTO message = messageService.sendMessage(userId, conversationId, request);
         return ResponseEntity.ok(message);
     }
+
+
 
     @PutMapping("/{conversationId}/read")
     public ResponseEntity<Void> markAsRead(

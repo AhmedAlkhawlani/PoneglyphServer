@@ -191,6 +191,7 @@
 //import com.nova.poneglyph.domain.enums.ParticipantRole;
 //import com.nova.poneglyph.domain.user.User;
 //import com.nova.poneglyph.dto.conversation.MessageDTO;
+//import com.nova.poneglyph.dto.websocket.TypingIndicator;
 //import com.nova.poneglyph.repository.ConversationRepository;
 //import com.nova.poneglyph.repository.ParticipantRepository;
 //import com.nova.poneglyph.repository.UserRepository;
@@ -364,12 +365,20 @@
 //
 //    private void sendTypingStatus(boolean typing) {
 //        System.out.println(typing ? "✍️ [زورو] يكتب..." : "✋ [زورو] توقف عن الكتابة");
-//        webSocketService.notifyUserStatusChange(fakeUserId, typing ? "typing" : "online");
+//
+//        TypingIndicator typingIndicator = new TypingIndicator();
+//        typingIndicator.setTyping(typing);
+//        typingIndicator.setUserId(fakeUserId);
+//        typingIndicator.setConversationId(fakeConversationId);
+//        typingIndicator.setTimestamp(System.currentTimeMillis());
+//        webSocketService.notifyTyping(fakeConversationId,typingIndicator);
+////        webSocketService.notifyUserStatusChange(fakeUserId, typing ? "typing" : "online");
+//
 //    }
 //
 //    private void updateOnlineStatus(boolean online) {
 //        System.out.println(online ? "🟢 [زورو] متصل" : "🔴 [زورو] غير متصل");
-//        webSocketService.notifyPresenceChange(fakeUserId, online);
+//        webSocketService.notifyPresenceChange(fakeUserId, online,"away");
 //
 //        if (!online) {
 //            isTyping = false;

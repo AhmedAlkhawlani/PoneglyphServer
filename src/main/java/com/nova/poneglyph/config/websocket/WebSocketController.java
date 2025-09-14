@@ -1,6 +1,8 @@
 package com.nova.poneglyph.config.websocket;
 
 import com.nova.poneglyph.dto.chatDto.MessageDto;
+import com.nova.poneglyph.dto.websocket.PresenceEvent;
+import com.nova.poneglyph.dto.websocket.TypingIndicator;
 import com.nova.poneglyph.service.WebSocketService;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -94,4 +96,33 @@ public class WebSocketController {
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
     }
+
+
+
+    @MessageMapping("/typing")
+    public void handleTyping(@Payload TypingIndicator typingIndicator, Authentication authentication) {
+        // طبع محتويات DTO فور الاستلام
+        System.out.println("Server received TypingIndicator (before fill): " + typingIndicator);
+        if (authentication != null && authentication.isAuthenticated()) {
+            UUID userId = UUID.fromString(authentication.getName());
+            typingIndicator.setUserId(userId);
+            typingIndicator.setTimestamp(System.currentTimeMillis());
+            System.out.println("Server TypingIndicator after fill: " + typingIndicator);
+            webSocketService.notifyTyping(typingIndicator.getConversationId(), typingIndicator);
+        }
+    }
+
+
+    @MessageMapping("/presence")
+    public void handlePresence(@Payload PresenceEvent presenceEvent, Authentication authentication) {
+        if (authentication != null && authentication.isAuthenticated()) {
+            UUID userId = UUID.fromString(authentication.getName());
+            presenceEvent.setUserId(userId);
+            presenceEvent.setTimestamp(System.currentTimeMillis());
+
+            // إرسال حدث الحضور إلى جميع المهتمين بحالة المستخدم
+            webSocketService.notifyPresenceChange(userId, presenceEvent.isOnline(), presenceEvent.getStatus());
+        }
+    }
+
 }

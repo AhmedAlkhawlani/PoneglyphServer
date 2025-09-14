@@ -31,6 +31,8 @@ public class Contact {
 
     @Column(name = "contact_name", length = 100)
     private String contactName;
+    @Column(name = "registered_id")
+    private String registeredId;
 
     @Column(name = "is_registered")
     private boolean registered;

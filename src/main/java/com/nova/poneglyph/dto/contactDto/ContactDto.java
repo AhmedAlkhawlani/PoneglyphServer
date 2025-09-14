@@ -16,4 +16,6 @@ public class ContactDto {
     private boolean online;
     private OffsetDateTime lastSeen;
     private boolean blocked; // بدون "is"
+    private String registeredId;
+
 }

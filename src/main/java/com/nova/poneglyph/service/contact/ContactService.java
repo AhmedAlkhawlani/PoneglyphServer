@@ -367,13 +367,20 @@ public class ContactService {
     }
 
     private ContactDto convertToDto(Contact contact) {
+        String registeredId = "";
+        if (contact.isRegistered()){
+            User user = userRepository.findByNormalizedPhone(contact.getNormalizedPhone()).orElseThrow(() -> new ContactException("User not found registeredId"));
+
+            registeredId =user.getId().toString() ;
+        }
         return new ContactDto(
                 contact.getContactPhone(),
                 contact.getContactName(),
                 contact.isRegistered(),
                 presenceService.isUserOnlineForPhone(contact.getNormalizedPhone()),
                 contact.getLastSeen(),
-                contact.isBlocked()
+                contact.isBlocked(),
+                registeredId
         );
     }
     @Transactional
@@ -399,6 +406,7 @@ public class ContactService {
                             .contactName(dto.getName())
                             .registered(found != null)
                             .lastSeen(found != null ? found.getLastActive() : null)
+                            .registeredId(found != null ? found.getId().toString() : null)
                             .blocked(false)
                             .build();
 
@@ -410,7 +418,8 @@ public class ContactService {
                             found != null,
                             found != null && found.isOnline(),
                             found != null ? found.getLastActive() : null,
-                            false
+                            false,
+                            found != null ? found.getId().toString() : null
                     );
                 })
                 .filter(c -> c != null)
